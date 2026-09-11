@@ -78,7 +78,7 @@ Cobertura mínima objetivo: 80% en lógica de negocio del backend (servicios). C
 - Aplicar patrones de diseño donde sea pertinente, no forzados.
 - Antes de implementar una función nueva no listada en los RF, verificar si está en las exclusiones del alcance (Especificación de Requisitos). Si lo está, señalarlo y preguntar antes de implementarla.
 - Priorizar código legible y modular (módulos, servicios, DTOs bien separados) por sobre soluciones ingeniosas pero difíciles de mantener.
-- **GitFlow**: ramas `feature/`, `fix/`, `release/` desde `develop`, nunca directo sobre `main`.
+- **GitFlow**: ramas `feature/`, `fix/`, `release/` desde `develop`, nunca directo sobre `main`. Ver [CONTRIBUTING.md](./CONTRIBUTING.md) para el flujo completo (incluida `qa`) y convención de nombres.
 - **Conventional Commits en español**: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`. Ejemplo: `feat: agregar endpoint de creación de transacciones`.
 - Si una alternativa técnica sería claramente mejor que el stack ya decidido, proponerla y preguntar — no cambiarla unilateralmente.
 
