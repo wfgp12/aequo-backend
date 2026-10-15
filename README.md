@@ -2,7 +2,7 @@
 
 > *"Aequo — el equilibrio de tus finanzas personales"*
 
-API REST del proyecto **Aequo**, una aplicación de gestión financiera personal simple e intuitiva. Este repositorio contiene únicamente el backend; la interfaz vive en el repositorio hermano `aequo-frontend` (Angular), que consume esta API.
+API REST del proyecto **Aequo**, una aplicación de gestión financiera personal simple e intuitiva. Este repositorio contiene únicamente el backend; la interfaz vive en el repositorio hermano `aequo-frontend` (React Native con Expo: web, Android e iOS desde una sola base de código), que consume esta API.
 
 ## Stack
 
@@ -20,9 +20,9 @@ API REST del proyecto **Aequo**, una aplicación de gestión financiera personal
 
 ## Arquitectura
 
-Cliente Angular → API REST NestJS (este repo) → MongoDB Atlas. La autenticación se delega a Firebase; el backend no gestiona contraseñas ni credenciales propias de usuario.
+Cliente React Native + Expo (web en GitHub Pages; Android e iOS en desarrollo) → API REST NestJS (este repo) → MongoDB Atlas. La autenticación se delega a Firebase; el backend no gestiona contraseñas ni credenciales propias de usuario.
 
-Las entidades (Mongoose) son anémicas — solo datos. El comportamiento vive en clases de servicio, una por módulo funcional: `AuthService`, `TransaccionesService`, `CategoriasService`, `ReportesService`, `MetasAhorroService`.
+Las entidades (Mongoose) son anémicas — solo datos. El comportamiento vive en clases de servicio, una por módulo funcional (autenticación, transacciones, categorías, reportes, ahorro, tarjetas, deudas, presupuesto, ingresos e indicadores; ver la sección 4 de [CLAUDE.md](./CLAUDE.md)).
 
 Documentación completa del proyecto (Charter, Especificación de Requisitos, ADR, EDT, Documento de Diseño Técnico, Cronograma) en `../docs` (fuera de este repo, hermano de `backend/` y `frontend/`).
 
@@ -38,7 +38,7 @@ Documentación completa del proyecto (Charter, Especificación de Requisitos, AD
 npm install
 ```
 
-Configurar variables de entorno (ver `.env.example` cuando exista; por ahora: credenciales de MongoDB Atlas y del proyecto de Firebase — service account para `firebase-admin`).
+Copiar `.env.example` a `.env` y ajustar los valores (`CORS_ORIGINS` define los orígenes del frontend permitidos). Más adelante se sumarán las credenciales de MongoDB Atlas y del proyecto de Firebase (service account para `firebase-admin`).
 
 ## Scripts
 

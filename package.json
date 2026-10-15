@@ -2,7 +2,7 @@
   "name": "aequo-backend",
   "version": "0.0.1",
   "description": "API REST de Aequo — gestión financiera personal (NestJS + MongoDB + Firebase Auth)",
-  "author": "Wilhen Fabián García",
+  "author": "Wilhen Ferney Gutierrez Pabon",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
