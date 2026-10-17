@@ -38,7 +38,7 @@ Documentación completa del proyecto (Charter, Especificación de Requisitos, AD
 npm install
 ```
 
-Copiar `.env.example` a `.env` y ajustar los valores (`CORS_ORIGINS` define los orígenes del frontend permitidos). Más adelante se sumarán las credenciales de MongoDB Atlas.
+Copiar `.env.example` a `.env` y completar los valores; cada variable está explicada en ese archivo, con un ejemplo de cómo se ve. `MONGODB_URI`, `JWT_SECRET` y las tres variables de Firebase son obligatorias: sin ellas el servidor no arranca.
 
 ### Firebase
 

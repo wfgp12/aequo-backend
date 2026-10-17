@@ -2,14 +2,18 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { AppModule } from './../src/app.module.js';
+import { AppController } from './../src/app.controller.js';
+import { AppService } from './../src/app.service.js';
 
+// ponytail: sin AppModule porque este e2e de plantilla no debe depender de MongoDB ni Firebase;
+// el flujo de login con Firebase simulado se cubre en el paquete 1.1.5.
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
 
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
+      controllers: [AppController],
+      providers: [AppService],
     }).compile();
 
     app = moduleFixture.createNestApplication();
