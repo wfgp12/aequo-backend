@@ -38,7 +38,15 @@ Documentación completa del proyecto (Charter, Especificación de Requisitos, AD
 npm install
 ```
 
-Copiar `.env.example` a `.env` y ajustar los valores (`CORS_ORIGINS` define los orígenes del frontend permitidos). Más adelante se sumarán las credenciales de MongoDB Atlas y del proyecto de Firebase (service account para `firebase-admin`).
+Copiar `.env.example` a `.env` y ajustar los valores (`CORS_ORIGINS` define los orígenes del frontend permitidos). Más adelante se sumarán las credenciales de MongoDB Atlas.
+
+### Firebase
+
+1. En [Firebase Console](https://console.firebase.google.com/) crear el proyecto, habilitar **Authentication → Google** y registrar las apps web y Android.
+2. En *Configuración del proyecto → Cuentas de servicio* generar una clave privada (JSON).
+3. Copiar `project_id`, `client_email` y `private_key` del JSON a `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL` y `FIREBASE_PRIVATE_KEY` en `.env` (la clave entre comillas, con los saltos de línea como `\n`). En Render se cargan como variables de entorno del servicio.
+
+El `.env` y el JSON de la service account no se versionan.
 
 ## Scripts
 
