@@ -4,6 +4,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
+import { construirMongoUri } from './database/mongodb-uri.js';
 import {
   DevSessionModule,
   devSessionHabilitada,
@@ -15,7 +16,11 @@ import {
     MongooseModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        uri: config.getOrThrow<string>('MONGODB_URI'),
+        uri: construirMongoUri({
+          usuario: config.getOrThrow<string>('MONGODB_USER'),
+          clave: config.getOrThrow<string>('MONGODB_PASSWORD'),
+          host: config.getOrThrow<string>('MONGODB_HOST'),
+        }),
       }),
     }),
     AuthModule,
