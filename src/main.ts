@@ -1,12 +1,12 @@
-import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module.js';
+import { crearValidationPipe } from './common/validation-pipe.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.enableCors({ origin: process.env.CORS_ORIGINS?.split(',') ?? false });
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
+  app.useGlobalPipes(crearValidationPipe());
 
   const documento = new DocumentBuilder()
     .setTitle('Aequo API')

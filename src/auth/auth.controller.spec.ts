@@ -1,6 +1,7 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import { crearValidationPipe } from '../common/validation-pipe.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 
@@ -14,7 +15,7 @@ describe('POST /auth/login', () => {
       providers: [{ provide: AuthService, useValue: { login } }],
     }).compile();
     app = modulo.createNestApplication();
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
+    app.useGlobalPipes(crearValidationPipe());
     await app.init();
   });
 
