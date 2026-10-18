@@ -67,6 +67,22 @@ describe('AuthService', () => {
     });
   });
 
+  describe('loginDePrueba', () => {
+    it('abre sesión del usuario de prueba fijo sin verificar ningún token', async () => {
+      const { servicio, verifyIdToken, findOneAndUpdate, sign } = crearServicio();
+
+      const respuesta = await servicio.loginDePrueba();
+
+      expect(verifyIdToken).not.toHaveBeenCalled();
+      expect(findOneAndUpdate.mock.calls[0][0]).toEqual({ firebaseUid: 'dev-session-user' });
+      expect(findOneAndUpdate.mock.calls[0][1]).toEqual({
+        $setOnInsert: { nombre: 'Usuario de prueba', email: 'prueba@aequo.local', fotoUrl: null },
+      });
+      expect(sign).toHaveBeenCalledWith({ sub: usuarioGuardado.id });
+      expect(respuesta.accessToken).toBe('jwt-propio');
+    });
+  });
+
   describe('verificarIdToken', () => {
     it.each(['auth/argument-error', 'auth/id-token-expired', 'auth/id-token-revoked'])(
       'responde 401 si Firebase rechaza el token (%s)',

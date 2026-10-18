@@ -20,5 +20,6 @@ import { firebaseAuthProvider } from './firebase-auth.provider.js';
   ],
   controllers: [AuthController],
   providers: [AuthService, firebaseAuthProvider],
+  exports: [AuthService],
 })
 export class AuthModule {}

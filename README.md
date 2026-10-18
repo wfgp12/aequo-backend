@@ -48,6 +48,14 @@ Copiar `.env.example` a `.env` y completar los valores; cada variable está expl
 
 El `.env` y el JSON de la service account no se versionan.
 
+### Sesión de prueba (solo desarrollo)
+
+Expo Go no permite el inicio de sesión con Google (ADR-011). Para revisar pantallas que requieren sesión existe `POST /auth/dev-login` (sin body), que devuelve la misma respuesta que `/auth/login` para un usuario de prueba fijo (`prueba@aequo.local`).
+
+- Solo existe si `NODE_ENV=development` **y** `DEV_SESSION_ENABLED=true`. En cualquier otro caso la ruta no se registra (404), aunque la bandera esté activa.
+- Nunca definir esas variables así en producción (Render): allí `NODE_ENV` debe ser `production` y `DEV_SESSION_ENABLED` no se define.
+- Una prueba automatizada (`src/auth/dev-session.spec.ts`) verifica que en producción no está disponible.
+
 ## Scripts
 
 ```bash
