@@ -38,7 +38,7 @@ Documentación completa del proyecto (Charter, Especificación de Requisitos, AD
 npm install
 ```
 
-Copiar `.env.example` a `.env` y completar los valores; cada variable está explicada en ese archivo, con un ejemplo de cómo se ve. `MONGODB_URI`, `JWT_SECRET` y las tres variables de Firebase son obligatorias: sin ellas el servidor no arranca.
+Copiar `.env.example` a `.env` y completar los valores; cada variable está explicada en ese archivo, con un ejemplo de cómo se ve. `MONGODB_USER`, `MONGODB_PASSWORD`, `MONGODB_HOST`, `JWT_SECRET` y las tres variables de Firebase son obligatorias: sin ellas el servidor no arranca.
 
 ### Firebase
 
