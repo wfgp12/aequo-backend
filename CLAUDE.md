@@ -105,7 +105,8 @@ Cobertura mínima objetivo: 80% en lógica de negocio del backend (servicios). C
 - **Trabajar un paquete de trabajo de la EDT a la vez** (el nivel más atómico, ej. `1.1.1 Configurar proyecto de Firebase y proveedor Google`), nunca un subpaquete completo ni un módulo completo de una sola vez.
 - Antes de empezar un paquete nuevo, **esperar confirmación explícita** del desarrollador de que puede avanzar — no encadenar el siguiente paquete automáticamente al terminar el anterior.
 - Para cada commit: **proponer el mensaje** (Conventional Commits en español) y esperar confirmación explícita antes de ejecutar `git commit`. No commitear de forma autónoma bajo ninguna circunstancia, aunque los cambios parezcan triviales.
-- No agregar co-author tags en commits salvo instrucción explícita.
+- No incluir el pie "Generated with Claude Code" ni "Co-Authored-By: Claude" en PR, commits ni ningún otro texto.
+- Después de cada PR, dejar el repositorio limpio: volver a `develop`, actualizarlo (`git pull` y `git fetch --prune`) y borrar las ramas que ya se mezclaron, locales (`git branch -d`; con merge por squash git no las considera mezcladas y hay que usar `-D`, tras comprobar que su PR está en estado MERGED) y remotas (`git push origin --delete`). Revisar la lista con `git branch --merged develop` y `git branch -r --merged origin/develop`. Nunca borrar la rama de un PR que sigue abierto, ni `main`, `qa` o `develop`.
 - La sesión de prueba para desarrollo (paquete 1.1.4) solo puede activarse con la configuración de desarrollo; nunca debe quedar disponible en producción.
 
 ## 10. Roadmap (referencia rápida)
