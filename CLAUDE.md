@@ -81,6 +81,16 @@ Al eliminar una categoría personalizada, `CategoriasService.reasignarAOtros()` 
 
 Se genera con `@nestjs/swagger` a partir de decoradores en controladores y DTOs, expuesta en una ruta del propio backend (ej. `/api/docs`). No mantengas ni pidas un documento Word/Excel con la lista de endpoints — la fuente de verdad es el código (ADR-005). Decorá cada controlador y DTO nuevo a medida que lo creás; un endpoint sin decorar no aparece documentado, sin ninguna alerta que lo señale.
 
+**La documentación debe ser muy detallada**, pensada para que un desarrollador que llegue después entienda cómo funciona sin leer el código. Cada endpoint nuevo incluye, en el mismo cambio:
+
+- `@ApiTags` y `@ApiOperation` con `summary` y una `description` extensa (qué hace, flujo, reglas de negocio y efectos secundarios).
+- `@ApiProperty` con `description` y `example` en cada campo de los DTO, tanto de entrada como de salida.
+- Todas las respuestas posibles con su esquema: la exitosa y los errores que apliquen (400, 401, 404, 409, 500). Los esquemas de error compartidos están en `src/common/dto/error-respuesta.dto.ts`.
+- `@ApiBearerAuth()` en las rutas protegidas.
+- Si el endpoint tiene reglas que el cliente debe conocer, explicarlas también en la descripción general de `src/common/swagger.ts`.
+
+La prueba `src/common/swagger.spec.ts` descubre todos los controladores y **falla** si un endpoint queda sin etiqueta, resumen, descripción detallada, respuesta de error o si una propiedad de un DTO no tiene descripción y ejemplo. Un paquete con endpoints no se da por terminado hasta que esa prueba pase y el endpoint se vea bien en `/api/docs`.
+
 ## 8. Enfoque de pruebas (TDD selectivo + shift-left)
 
 No es TDD estricto en todo el proyecto. Es un híbrido:
