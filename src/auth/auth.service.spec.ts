@@ -12,19 +12,19 @@ function crearServicio() {
   const verifyIdToken = vi.fn();
   const orFail = vi.fn().mockResolvedValue(usuarioGuardado);
   const findOneAndUpdate = vi.fn().mockReturnValue({ orFail });
-  const sign = vi.fn().mockReturnValue('jwt-propio');
+  const generar = vi.fn().mockReturnValue('jwt-propio');
   const servicio = new AuthService(
     { findOneAndUpdate } as never,
-    { sign } as never,
+    { generar } as never,
     { verifyIdToken } as never,
   );
-  return { servicio, verifyIdToken, findOneAndUpdate, sign };
+  return { servicio, verifyIdToken, findOneAndUpdate, generar };
 }
 
 describe('AuthService', () => {
   describe('login', () => {
     it('crea o recupera al usuario por UID y devuelve un JWT propio de 24 h', async () => {
-      const { servicio, verifyIdToken, findOneAndUpdate, sign } = crearServicio();
+      const { servicio, verifyIdToken, findOneAndUpdate, generar } = crearServicio();
       verifyIdToken.mockResolvedValue({
         uid: 'uid-1',
         email: 'wilhen@gmail.com',
@@ -46,7 +46,7 @@ describe('AuthService', () => {
         },
         { upsert: true, returnDocument: 'after' },
       );
-      expect(sign).toHaveBeenCalledWith({ sub: usuarioGuardado.id });
+      expect(generar).toHaveBeenCalledWith(usuarioGuardado.id);
       expect(respuesta).toEqual({
         accessToken: 'jwt-propio',
         expiresIn: SESION_SEGUNDOS,
@@ -69,7 +69,7 @@ describe('AuthService', () => {
 
   describe('loginDePrueba', () => {
     it('abre sesión del usuario de prueba fijo sin verificar ningún token', async () => {
-      const { servicio, verifyIdToken, findOneAndUpdate, sign } = crearServicio();
+      const { servicio, verifyIdToken, findOneAndUpdate, generar } = crearServicio();
 
       const respuesta = await servicio.loginDePrueba();
 
@@ -78,7 +78,7 @@ describe('AuthService', () => {
       expect(findOneAndUpdate.mock.calls[0][1]).toEqual({
         $setOnInsert: { nombre: 'Usuario de prueba', email: 'prueba@aequo.local', fotoUrl: null },
       });
-      expect(sign).toHaveBeenCalledWith({ sub: usuarioGuardado.id });
+      expect(generar).toHaveBeenCalledWith(usuarioGuardado.id);
       expect(respuesta.accessToken).toBe('jwt-propio');
     });
   });

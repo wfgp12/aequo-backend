@@ -1,11 +1,11 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import type { Auth, DecodedIdToken } from 'firebase-admin/auth';
 import type { Model } from 'mongoose';
 import { Usuario, type UsuarioDocument } from '../usuarios/usuario.schema.js';
 import type { LoginRespuestaDto } from './dto/login-respuesta.dto.js';
 import { FIREBASE_AUTH } from './firebase-auth.provider.js';
+import { TokenService } from './token.service.js';
 
 export const SESION_SEGUNDOS = 24 * 60 * 60; // RNF-01
 
@@ -27,7 +27,7 @@ export const IDENTIDAD_DE_PRUEBA: Identidad = {
 export class AuthService {
   constructor(
     @InjectModel(Usuario.name) private readonly usuarios: Model<Usuario>,
-    @Inject(JwtService) private readonly jwt: JwtService,
+    @Inject(TokenService) private readonly tokens: TokenService,
     @Inject(FIREBASE_AUTH) private readonly firebaseAuth: Auth,
   ) {}
 
@@ -52,7 +52,7 @@ export class AuthService {
   }
 
   generarJWT(usuario: UsuarioDocument): string {
-    return this.jwt.sign({ sub: usuario.id });
+    return this.tokens.generar(usuario.id);
   }
 
   /** Crea el usuario la primera vez y lo recupera después, siempre por UID de Firebase. */
