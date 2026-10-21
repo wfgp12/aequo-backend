@@ -1,4 +1,4 @@
-import type { INestApplication } from '@nestjs/common';
+import { Controller, Get, type INestApplication } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { getModelToken } from '@nestjs/mongoose';
@@ -7,6 +7,7 @@ import request from 'supertest';
 import { crearValidationPipe } from '../common/validation-pipe.js';
 import { Usuario } from '../usuarios/usuario.schema.js';
 import { AuthModule } from './auth.module.js';
+import { UsuarioActual } from './decoradores.js';
 import { FIREBASE_AUTH } from './firebase-auth.provider.js';
 
 /** Colección en memoria con la semántica de upsert que usa AuthService ($setOnInsert por firebaseUid). */
@@ -35,6 +36,15 @@ class UsuariosEnMemoria {
 
 const errorDeFirebase = (code: string) => Object.assign(new Error(code), { code });
 
+// Ruta protegida de prueba: el guard global lo aporta AuthModule, no este controlador.
+@Controller('prueba')
+class ControladorProtegido {
+  @Get('protegida')
+  protegida(@UsuarioActual() usuarioId: string) {
+    return { usuarioId };
+  }
+}
+
 describe('Flujo de login (integración: AuthModule real, Firebase y MongoDB simulados)', () => {
   let app: INestApplication;
   let usuarios: UsuariosEnMemoria;
@@ -47,6 +57,7 @@ describe('Flujo de login (integración: AuthModule real, Firebase y MongoDB simu
 
     const modulo = await Test.createTestingModule({
       imports: [ConfigModule.forRoot({ ignoreEnvFile: true, isGlobal: true }), AuthModule],
+      controllers: [ControladorProtegido],
     })
       .overrideProvider(getModelToken(Usuario.name))
       .useValue(usuarios)
@@ -66,6 +77,41 @@ describe('Flujo de login (integración: AuthModule real, Firebase y MongoDB simu
 
   const login = (body: unknown) =>
     request(app.getHttpServer()).post('/auth/login').send(body as object);
+
+  describe('sesión de punta a punta: login y luego una ruta protegida', () => {
+    it('el accessToken del login abre una ruta protegida con el id del mismo usuario', async () => {
+      verifyIdToken.mockResolvedValue({ uid: 'uid-1', email: 'wilhen@gmail.com', name: 'Wilhen' });
+
+      const { body } = await login({ idToken: 'token-valido' });
+      const respuesta = await request(app.getHttpServer())
+        .get('/prueba/protegida')
+        .set('Authorization', `Bearer ${body.accessToken}`);
+
+      expect(respuesta.status).toBe(200);
+      expect(respuesta.body).toEqual({ usuarioId: body.usuario.id });
+    });
+
+    it('la ruta protegida responde 401 sin token y con un token que no emitió este backend', async () => {
+      const sinToken = await request(app.getHttpServer()).get('/prueba/protegida');
+      const ajeno = await request(app.getHttpServer())
+        .get('/prueba/protegida')
+        .set('Authorization', 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.firma-falsa');
+
+      for (const respuesta of [sinToken, ajeno]) {
+        expect(respuesta.status).toBe(401);
+        expect(respuesta.body.message).toBe('Sesión inválida o vencida');
+      }
+    });
+
+    it('el ID Token de Firebase no sirve como sesión en una ruta protegida', async () => {
+      const respuesta = await request(app.getHttpServer())
+        .get('/prueba/protegida')
+        .set('Authorization', 'Bearer token-de-firebase');
+
+      expect(respuesta.status).toBe(401);
+      expect(verifyIdToken).not.toHaveBeenCalled();
+    });
+  });
 
   describe('flujo exitoso', () => {
     it('crea al usuario en el primer login y devuelve un JWT propio válido por 24 h', async () => {

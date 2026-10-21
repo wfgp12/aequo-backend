@@ -8,8 +8,10 @@ import {
 } from '@nestjs/swagger';
 import { ErrorInternoDto, ErrorNoEncontradoDto } from '../common/dto/error-respuesta.dto.js';
 import { AuthService } from './auth.service.js';
+import { Publica } from './decoradores.js';
 import { LoginRespuestaDto } from './dto/login-respuesta.dto.js';
 
+@Publica()
 @ApiTags('desarrollo')
 @Controller('auth')
 export class DevAuthController {

@@ -1,11 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Usuario, UsuarioSchema } from '../usuarios/usuario.schema.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService, SESION_SEGUNDOS } from './auth.service.js';
 import { firebaseAuthProvider } from './firebase-auth.provider.js';
+import { JwtAuthGuard } from './jwt-auth.guard.js';
 import { TokenService } from './token.service.js';
 
 @Module({
@@ -22,7 +24,13 @@ import { TokenService } from './token.service.js';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, TokenService, firebaseAuthProvider],
+  providers: [
+    AuthService,
+    TokenService,
+    firebaseAuthProvider,
+    // Protegido por defecto: toda ruta exige sesión salvo las marcadas con @Publica().
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+  ],
   exports: [AuthService, TokenService],
 })
 export class AuthModule {}

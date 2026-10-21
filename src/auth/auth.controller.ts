@@ -13,6 +13,7 @@ import {
   ErrorValidacionDto,
 } from '../common/dto/error-respuesta.dto.js';
 import { AuthService } from './auth.service.js';
+import { Publica } from './decoradores.js';
 import { LoginRespuestaDto } from './dto/login-respuesta.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 
@@ -21,6 +22,7 @@ import { LoginDto } from './dto/login.dto.js';
 export class AuthController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
 
+  @Publica()
   @Post('login')
   @HttpCode(200)
   @ApiOperation({

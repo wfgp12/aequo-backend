@@ -15,6 +15,7 @@ En esta página: pulsa **Authorize**, pega el \`accessToken\` (sin la palabra Be
 ## Convenciones
 
 - Cuerpos y respuestas en JSON.
+- **Todas las rutas exigen sesión (JWT) por defecto.** Solo son públicas \`POST /auth/login\` y, en desarrollo, \`POST /auth/dev-login\`. Sin un token válido (ausente, vencido o manipulado) la respuesta es siempre \`401\` con el mensaje \`Sesión inválida o vencida\`: el cliente debe cerrar la sesión local y volver al login.
 - **Contrato estricto:** un campo que el endpoint no declara en el body se rechaza con \`400\`; no se ignora.
 - **Errores:** siempre con la forma \`{ statusCode, message, error }\`. En los \`400\` de validación \`message\` es un arreglo de textos; en el resto es un texto.
 - El usuario se identifica por el **UID de Firebase**, nunca por el correo.
