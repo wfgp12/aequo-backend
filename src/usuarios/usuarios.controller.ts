@@ -1,7 +1,8 @@
-import { Controller, Get, Inject } from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, Inject } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiInternalServerErrorResponse,
+  ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -45,5 +46,38 @@ Devuelve los datos básicos del usuario dueño de la sesión. **Requiere sesión
   })
   perfil(@UsuarioActual() usuarioId: string): Promise<UsuarioRespuestaDto> {
     return this.auth.obtenerPerfil(usuarioId);
+  }
+
+  @Delete('me')
+  @HttpCode(204)
+  @ApiOperation({
+    summary: 'Eliminar la cuenta del usuario autenticado',
+    description: `
+Elimina de forma **permanente e irreversible** la cuenta del usuario dueño de la sesión y **toda su información financiera**. **Requiere sesión:** header \`Authorization: Bearer <accessToken>\`. La confirmación al usuario ("¿seguro que quieres eliminar tu cuenta?") es responsabilidad del cliente: este endpoint borra en cuanto se llama.
+
+**Qué se borra**
+- Los documentos de **todas las colecciones** que referencian al usuario con \`usuarioId\` (transacciones, categorías personales, metas de ahorro, tarjetas, deudas, presupuesto, etc.) y, al final, el propio usuario. No queda ningún documento asociado.
+- Las categorías generales del sistema no se tocan: no pertenecen a ningún usuario.
+
+**Reglas a tener en cuenta**
+- El usuario se toma **siempre del JWT**: solo se puede eliminar la cuenta propia.
+- Los datos se borran antes que el usuario. Si ocurre un fallo a mitad (\`500\`), la cuenta sigue existiendo y se puede **reintentar** la misma petición.
+- Es **idempotente**: repetirla cuando la cuenta ya no existe también responde \`204\`.
+- Al terminar, el JWT del usuario deja de ser una sesión válida (\`GET /usuarios/me\` responde \`401\`): el cliente debe cerrar la sesión local y volver al login.
+- La cuenta de Google/Firebase no se elimina: si el usuario vuelve a iniciar sesión, se crea una cuenta nueva y vacía.
+`.trim(),
+  })
+  @ApiNoContentResponse({ description: 'Cuenta y datos eliminados. Sin cuerpo. El cliente debe cerrar la sesión local.' })
+  @ApiUnauthorizedResponse({
+    type: ErrorSesionInvalidaDto,
+    description: 'Falta el token, es inválido, está vencido o manipulado. No se elimina nada.',
+  })
+  @ApiInternalServerErrorResponse({
+    type: ErrorInternoDto,
+    description:
+      'Fallo inesperado a mitad del borrado, por ejemplo MongoDB no disponible. La cuenta sigue existiendo: reintentar la misma petición.',
+  })
+  eliminarCuenta(@UsuarioActual() usuarioId: string): Promise<void> {
+    return this.auth.eliminarCuenta(usuarioId);
   }
 }

@@ -56,6 +56,8 @@ Doce colecciones: `usuarios`, `transacciones`, `categorias`, `metasahorro`, `tar
 - **ADR-003:** todo cambio de esquema sobre una colección con datos reales requiere un script de migración explícito, no solo el cambio en el schema de Mongoose. No aplica retroactivamente antes del primer despliegue con usuarios reales.
 - **ADR-004 (pendiente, no implementar):** el ahorro/gasto compartido entre varios usuarios está fuera del alcance del MVP. No introducir un concepto de "Hogar/Grupo" sin que se pida explícitamente.
 
+**Convención para eliminar la cuenta (RF-04):** toda colección que guarde datos de un usuario lo referencia con un campo llamado exactamente `usuarioId` (`ObjectId`). `AuthService.eliminarCuenta()` descubre solo, entre los modelos registrados, los que declaran ese campo y les borra los documentos del usuario antes de borrar al propio usuario. Una colección con datos de usuario que use otro nombre de campo se quedaría sin borrar y rompería el criterio "no queda ningún documento asociado".
+
 `TipoTransaccion`, `MetodoPago`, `TipoMeta`, `ClasificacionFlujo`, `TipoCompra` y `TipoInteres` son enumeraciones cerradas — validalas en el esquema de Mongoose, no como texto libre.
 
 **Regla de flujo de caja (ADR-014) — no negociable:**

@@ -77,6 +77,23 @@ export class AuthService {
     return this.aPerfil(usuario);
   }
 
+  /**
+   * Elimina la cuenta y toda la información del usuario. Borra los documentos de TODA colección que lo
+   * referencie con `usuarioId` (se descubren solas, así que las colecciones futuras quedan cubiertas) y al
+   * final el propio usuario: si algo falla a medias, el usuario sigue existiendo y se puede reintentar.
+   * Es idempotente: eliminar una cuenta que ya no existe no es un error.
+   */
+  async eliminarCuenta(usuarioId: string): Promise<void> {
+    const { db } = this.usuarios;
+    for (const nombre of db.modelNames()) {
+      const modelo = db.model(nombre);
+      if (modelo !== this.usuarios && modelo.schema.path('usuarioId')) {
+        await modelo.deleteMany({ usuarioId });
+      }
+    }
+    await this.usuarios.deleteOne({ _id: usuarioId });
+  }
+
   // Solo los datos que el cliente puede ver: nunca el UID de Firebase ni campos internos.
   private aPerfil(usuario: UsuarioDocument): UsuarioRespuestaDto {
     return {
