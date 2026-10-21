@@ -2,6 +2,7 @@ import { Controller, Get, type INestApplication } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { getModelToken } from '@nestjs/mongoose';
+import mongoose from 'mongoose';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { crearValidationPipe } from '../common/validation-pipe.js';
@@ -14,6 +15,32 @@ import { FIREBASE_AUTH } from './firebase-auth.provider.js';
 /** Colección en memoria con la semántica de upsert que usa AuthService ($setOnInsert por firebaseUid). */
 class UsuariosEnMemoria {
   readonly docs = new Map<string, Record<string, unknown>>();
+  /** Datos financieros de ejemplo: una colección que referencia al usuario con `usuarioId`. */
+  transacciones: Array<{ usuarioId: string; valor: number }> = [];
+  private contador = 0;
+
+  // Lo que eliminarCuenta necesita de la conexión: los modelos registrados y su esquema.
+  readonly schema = new mongoose.Schema({ firebaseUid: String });
+  readonly db = {
+    modelNames: () => ['Usuario', 'Transaccion'],
+    model: (nombre: string) =>
+      nombre === 'Usuario'
+        ? this
+        : {
+            schema: new mongoose.Schema({ usuarioId: mongoose.Schema.Types.ObjectId }),
+            deleteMany: async ({ usuarioId }: { usuarioId: string }) => {
+              this.transacciones = this.transacciones.filter((t) => t.usuarioId !== usuarioId);
+            },
+          },
+  };
+
+  async deleteOne({ _id }: { _id: string }) {
+    for (const [uid, doc] of this.docs) {
+      if (doc.id === _id) {
+        this.docs.delete(uid);
+      }
+    }
+  }
 
   async findById(id: string) {
     return [...this.docs.values()].find((doc) => doc.id === id) ?? null;
@@ -26,7 +53,7 @@ class UsuariosEnMemoria {
     return {
       orFail: async () => {
         if (!this.docs.has(filtro.firebaseUid)) {
-          const id = String(this.docs.size + 1).padStart(24, '0');
+          const id = String(++this.contador).padStart(24, '0');
           this.docs.set(filtro.firebaseUid, {
             id,
             firebaseUid: filtro.firebaseUid,
@@ -167,6 +194,76 @@ describe('Flujo de login (integración: AuthModule real, Firebase y MongoDB simu
 
       expect(respuesta.status).toBe(401);
       expect(respuesta.body.message).toBe('Sesión inválida o vencida');
+    });
+  });
+
+  describe('DELETE /usuarios/me: eliminación de cuenta', () => {
+    const iniciarSesion = async (uid: string, nombre: string) => {
+      verifyIdToken.mockResolvedValueOnce({ uid, email: `${uid}@gmail.com`, name: nombre });
+      return (await login({ idToken: uid })).body;
+    };
+    const eliminar = (accessToken?: string) => {
+      const peticion = request(app.getHttpServer()).delete('/usuarios/me');
+      return accessToken ? peticion.set('Authorization', `Bearer ${accessToken}`) : peticion;
+    };
+    const perfil = (accessToken: string) =>
+      request(app.getHttpServer()).get('/usuarios/me').set('Authorization', `Bearer ${accessToken}`);
+
+    it('elimina al usuario y todos sus datos, sin tocar los de nadie más', async () => {
+      const ana = await iniciarSesion('ana', 'Ana');
+      const luis = await iniciarSesion('luis', 'Luis');
+      usuarios.transacciones.push(
+        { usuarioId: ana.usuario.id, valor: 10 },
+        { usuarioId: ana.usuario.id, valor: 20 },
+        { usuarioId: luis.usuario.id, valor: 30 },
+      );
+
+      const respuesta = await eliminar(ana.accessToken);
+
+      expect(respuesta.status).toBe(204);
+      expect(respuesta.text).toBe('');
+      expect([...usuarios.docs.values()].map((d) => d.id)).toEqual([luis.usuario.id]);
+      expect(usuarios.transacciones).toEqual([{ usuarioId: luis.usuario.id, valor: 30 }]);
+      expect((await perfil(luis.accessToken)).status).toBe(200);
+    });
+
+    it('tras eliminarla, el JWT deja de ser una sesión válida', async () => {
+      const ana = await iniciarSesion('ana', 'Ana');
+      await eliminar(ana.accessToken).expect(204);
+
+      const respuesta = await perfil(ana.accessToken);
+
+      expect(respuesta.status).toBe(401);
+      expect(respuesta.body.message).toBe('Sesión inválida o vencida');
+    });
+
+    it('sin sesión responde 401 y no elimina nada', async () => {
+      const ana = await iniciarSesion('ana', 'Ana');
+      usuarios.transacciones.push({ usuarioId: ana.usuario.id, valor: 10 });
+
+      const respuesta = await eliminar();
+
+      expect(respuesta.status).toBe(401);
+      expect(usuarios.docs.size).toBe(1);
+      expect(usuarios.transacciones).toHaveLength(1);
+    });
+
+    it('es idempotente: repetir la petición con la cuenta ya eliminada también responde 204', async () => {
+      const ana = await iniciarSesion('ana', 'Ana');
+      await eliminar(ana.accessToken).expect(204);
+
+      await eliminar(ana.accessToken).expect(204);
+    });
+
+    it('si el usuario vuelve a iniciar sesión se crea una cuenta nueva y vacía, no la anterior', async () => {
+      const antes = await iniciarSesion('ana', 'Ana');
+      usuarios.transacciones.push({ usuarioId: antes.usuario.id, valor: 10 });
+      await eliminar(antes.accessToken).expect(204);
+
+      const despues = await iniciarSesion('ana', 'Ana');
+
+      expect(despues.usuario.id).not.toBe(antes.usuario.id);
+      expect(usuarios.transacciones).toEqual([]);
     });
   });
 
