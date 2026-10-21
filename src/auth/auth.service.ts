@@ -3,9 +3,9 @@ import { InjectModel } from '@nestjs/mongoose';
 import type { Auth, DecodedIdToken } from 'firebase-admin/auth';
 import type { Model } from 'mongoose';
 import { Usuario, type UsuarioDocument } from '../usuarios/usuario.schema.js';
-import type { LoginRespuestaDto } from './dto/login-respuesta.dto.js';
+import type { LoginRespuestaDto, UsuarioRespuestaDto } from './dto/login-respuesta.dto.js';
 import { FIREBASE_AUTH } from './firebase-auth.provider.js';
-import { TokenService } from './token.service.js';
+import { MENSAJE_SESION_INVALIDA, TokenService } from './token.service.js';
 
 export const SESION_SEGUNDOS = 24 * 60 * 60; // RNF-01
 
@@ -65,6 +65,28 @@ export class AuthService {
     return this.abrirSesion(IDENTIDAD_DE_PRUEBA);
   }
 
+  /**
+   * Perfil del usuario dueño de la sesión. Si el usuario ya no existe (por ejemplo, cuenta eliminada),
+   * su JWT deja de ser una sesión válida.
+   */
+  async obtenerPerfil(usuarioId: string): Promise<UsuarioRespuestaDto> {
+    const usuario = await this.usuarios.findById(usuarioId);
+    if (!usuario) {
+      throw new UnauthorizedException(MENSAJE_SESION_INVALIDA);
+    }
+    return this.aPerfil(usuario);
+  }
+
+  // Solo los datos que el cliente puede ver: nunca el UID de Firebase ni campos internos.
+  private aPerfil(usuario: UsuarioDocument): UsuarioRespuestaDto {
+    return {
+      id: usuario.id,
+      nombre: usuario.nombre,
+      email: usuario.email,
+      fotoUrl: usuario.fotoUrl,
+    };
+  }
+
   private async abrirSesion({
     uid,
     email,
@@ -88,12 +110,7 @@ export class AuthService {
     return {
       accessToken: this.generarJWT(usuario),
       expiresIn: SESION_SEGUNDOS,
-      usuario: {
-        id: usuario.id,
-        nombre: usuario.nombre,
-        email: usuario.email,
-        fotoUrl: usuario.fotoUrl,
-      },
+      usuario: this.aPerfil(usuario),
     };
   }
 }

@@ -35,6 +35,7 @@ export const construirConfigSwagger = () =>
         'JWT propio de la app, obtenido en `POST /auth/login`. Pegar solo el token, sin el prefijo "Bearer".',
     })
     .addTag('auth', 'Inicio de sesión con Google (Firebase) y emisión del JWT de sesión propio de la app.')
+    .addTag('usuarios', 'Perfil y cuenta del usuario autenticado. Requieren sesión (JWT).')
     .addTag(
       'desarrollo',
       'Rutas que SOLO existen con NODE_ENV=development y DEV_SESSION_ENABLED=true. Nunca disponibles en producción.',

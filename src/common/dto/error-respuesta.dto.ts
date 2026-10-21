@@ -34,6 +34,22 @@ export class ErrorNoAutorizadoDto {
   error: string;
 }
 
+export class ErrorSesionInvalidaDto {
+  @ApiProperty({ type: Number, example: 401, description: 'Código HTTP de la respuesta.' })
+  statusCode: number;
+
+  @ApiProperty({
+    type: String,
+    example: 'Sesión inválida o vencida',
+    description:
+      'Mismo mensaje para token ausente, vencido, manipulado o de un usuario que ya no existe: no se da pistas sobre el motivo.',
+  })
+  message: string;
+
+  @ApiProperty({ type: String, example: 'Unauthorized', description: 'Nombre del estado HTTP.' })
+  error: string;
+}
+
 export class ErrorNoEncontradoDto {
   @ApiProperty({ type: Number, example: 404, description: 'Código HTTP de la respuesta.' })
   statusCode: number;

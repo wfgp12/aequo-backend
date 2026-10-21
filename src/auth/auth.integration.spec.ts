@@ -7,12 +7,17 @@ import request from 'supertest';
 import { crearValidationPipe } from '../common/validation-pipe.js';
 import { Usuario } from '../usuarios/usuario.schema.js';
 import { AuthModule } from './auth.module.js';
+import { UsuariosController } from '../usuarios/usuarios.controller.js';
 import { UsuarioActual } from './decoradores.js';
 import { FIREBASE_AUTH } from './firebase-auth.provider.js';
 
 /** Colección en memoria con la semántica de upsert que usa AuthService ($setOnInsert por firebaseUid). */
 class UsuariosEnMemoria {
   readonly docs = new Map<string, Record<string, unknown>>();
+
+  async findById(id: string) {
+    return [...this.docs.values()].find((doc) => doc.id === id) ?? null;
+  }
 
   findOneAndUpdate(
     filtro: { firebaseUid: string },
@@ -57,7 +62,7 @@ describe('Flujo de login (integración: AuthModule real, Firebase y MongoDB simu
 
     const modulo = await Test.createTestingModule({
       imports: [ConfigModule.forRoot({ ignoreEnvFile: true, isGlobal: true }), AuthModule],
-      controllers: [ControladorProtegido],
+      controllers: [ControladorProtegido, UsuariosController],
     })
       .overrideProvider(getModelToken(Usuario.name))
       .useValue(usuarios)
@@ -110,6 +115,58 @@ describe('Flujo de login (integración: AuthModule real, Firebase y MongoDB simu
 
       expect(respuesta.status).toBe(401);
       expect(verifyIdToken).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /usuarios/me: perfil del usuario autenticado', () => {
+    const perfil = (autorizacion?: string) => {
+      const peticion = request(app.getHttpServer()).get('/usuarios/me');
+      return autorizacion ? peticion.set('Authorization', autorizacion) : peticion;
+    };
+
+    it('con el accessToken del login devuelve el perfil de ese usuario y solo ese', async () => {
+      verifyIdToken.mockResolvedValueOnce({ uid: 'uid-1', email: 'ana@gmail.com', name: 'Ana', picture: 'https://foto/ana.png' });
+      verifyIdToken.mockResolvedValueOnce({ uid: 'uid-2', email: 'luis@gmail.com', name: 'Luis' });
+      const ana = (await login({ idToken: 'a' })).body;
+      const luis = (await login({ idToken: 'b' })).body;
+
+      const deAna = await perfil(`Bearer ${ana.accessToken}`);
+      const deLuis = await perfil(`Bearer ${luis.accessToken}`);
+
+      expect(deAna.status).toBe(200);
+      expect(deAna.body).toEqual({ id: ana.usuario.id, nombre: 'Ana', email: 'ana@gmail.com', fotoUrl: 'https://foto/ana.png' });
+      expect(deLuis.body).toEqual({ id: luis.usuario.id, nombre: 'Luis', email: 'luis@gmail.com', fotoUrl: null });
+    });
+
+    it('no expone el UID de Firebase ni campos internos', async () => {
+      verifyIdToken.mockResolvedValue({ uid: 'uid-secreto', email: 'ana@gmail.com', name: 'Ana' });
+      const { body } = await login({ idToken: 'a' });
+
+      const respuesta = await perfil(`Bearer ${body.accessToken}`);
+
+      expect(Object.keys(respuesta.body).sort()).toEqual(['email', 'fotoUrl', 'id', 'nombre']);
+      expect(JSON.stringify(respuesta.body)).not.toContain('uid-secreto');
+    });
+
+    it.each([
+      ['sin token', undefined],
+      ['con un token que no emitió este backend', 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.firma-falsa'],
+    ])('responde 401 %s', async (_caso, autorizacion) => {
+      const respuesta = await perfil(autorizacion);
+
+      expect(respuesta.status).toBe(401);
+      expect(respuesta.body).toEqual({ statusCode: 401, message: 'Sesión inválida o vencida', error: 'Unauthorized' });
+    });
+
+    it('responde 401 si el JWT es válido pero el usuario ya no existe', async () => {
+      verifyIdToken.mockResolvedValue({ uid: 'uid-1', email: 'ana@gmail.com', name: 'Ana' });
+      const { body } = await login({ idToken: 'a' });
+      usuarios.docs.clear();
+
+      const respuesta = await perfil(`Bearer ${body.accessToken}`);
+
+      expect(respuesta.status).toBe(401);
+      expect(respuesta.body.message).toBe('Sesión inválida o vencida');
     });
   });
 
