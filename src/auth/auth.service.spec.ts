@@ -12,13 +12,14 @@ function crearServicio() {
   const verifyIdToken = vi.fn();
   const orFail = vi.fn().mockResolvedValue(usuarioGuardado);
   const findOneAndUpdate = vi.fn().mockReturnValue({ orFail });
+  const findById = vi.fn();
   const generar = vi.fn().mockReturnValue('jwt-propio');
   const servicio = new AuthService(
-    { findOneAndUpdate } as never,
+    { findOneAndUpdate, findById } as never,
     { generar } as never,
     { verifyIdToken } as never,
   );
-  return { servicio, verifyIdToken, findOneAndUpdate, generar };
+  return { servicio, verifyIdToken, findOneAndUpdate, findById, generar };
 }
 
 describe('AuthService', () => {
@@ -64,6 +65,28 @@ describe('AuthService', () => {
       expect(findOneAndUpdate.mock.calls[0][1]).toEqual({
         $setOnInsert: { nombre: 'ana.perez', email: 'ana.perez@gmail.com', fotoUrl: null },
       });
+    });
+  });
+
+  describe('obtenerPerfil', () => {
+    it('devuelve solo los datos públicos del usuario de la sesión, sin el UID de Firebase', async () => {
+      const { servicio, findById } = crearServicio();
+      findById.mockResolvedValue({ ...usuarioGuardado, firebaseUid: 'uid-secreto', _id: 'interno' });
+
+      const perfil = await servicio.obtenerPerfil(usuarioGuardado.id);
+
+      expect(findById).toHaveBeenCalledWith(usuarioGuardado.id);
+      expect(perfil).toEqual(usuarioGuardado);
+      expect(JSON.stringify(perfil)).not.toContain('uid-secreto');
+    });
+
+    it('responde 401 con el mensaje de sesión inválida si el usuario ya no existe', async () => {
+      const { servicio, findById } = crearServicio();
+      findById.mockResolvedValue(null);
+
+      await expect(servicio.obtenerPerfil('665f1c2e9b1d4a0012ab34cd')).rejects.toThrow(
+        new UnauthorizedException('Sesión inválida o vencida'),
+      );
     });
   });
 
