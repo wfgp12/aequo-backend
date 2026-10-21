@@ -31,6 +31,18 @@ describe('TokenService', () => {
     });
   });
 
+  describe('generar (contenido del token)', () => {
+    it('el payload solo lleva el id (sub) y las fechas iat y exp, sin datos personales', async () => {
+      const payload = await crearJwt().verifyAsync(tokens.generar(USUARIO_ID));
+
+      expect(Object.keys(payload).sort()).toEqual(['exp', 'iat', 'sub']);
+    });
+
+    it('emite tokens distintos para usuarios distintos', () => {
+      expect(tokens.generar('usuario-a')).not.toBe(tokens.generar('usuario-b'));
+    });
+  });
+
   describe('validar', () => {
     it('acepta un token emitido por el propio servicio y devuelve el id del usuario', async () => {
       await expect(tokens.validar(tokens.generar(USUARIO_ID))).resolves.toEqual({
@@ -59,6 +71,28 @@ describe('TokenService', () => {
       const sinFirma = `${codificar({ alg: 'none', typ: 'JWT' })}.${codificar({ sub: USUARIO_ID })}.`;
 
       await esperarRechazo(sinFirma);
+    });
+
+    it('rechaza un token firmado con otro algoritmo aunque use el secreto correcto', async () => {
+      const hs512 = new JwtService({ secret: SECRETO, signOptions: { algorithm: 'HS512' } });
+
+      await esperarRechazo(hs512.sign({ sub: USUARIO_ID }));
+    });
+
+    describe('vigencia de 24 h', () => {
+      afterEach(() => vi.useRealTimers());
+
+      it('lo acepta justo antes de cumplirse las 24 h y lo rechaza una vez cumplidas', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-10-20T12:00:00Z'));
+        const token = tokens.generar(USUARIO_ID);
+
+        vi.setSystemTime(new Date('2026-10-21T11:59:58Z'));
+        await expect(tokens.validar(token)).resolves.toEqual({ usuarioId: USUARIO_ID });
+
+        vi.setSystemTime(new Date('2026-10-21T12:00:01Z'));
+        await esperarRechazo(token);
+      });
     });
 
     it('rechaza un token válido que no trae `sub`', async () => {

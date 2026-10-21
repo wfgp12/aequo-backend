@@ -7,6 +7,8 @@ export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
     globals: true,
+    // Con cobertura y muchos archivos en paralelo, compilar un módulo de Nest puede pasar de los 5 s por defecto.
+    testTimeout: 15000,
     root: './',
     include: ['**/*.spec.ts'],
     coverage: {
