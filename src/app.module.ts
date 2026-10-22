@@ -5,6 +5,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { construirMongoUri } from './database/mongodb-uri.js';
+import { TransaccionesModule } from './transacciones/transacciones.module.js';
 import { UsuariosModule } from './usuarios/usuarios.module.js';
 import {
   DevSessionModule,
@@ -26,6 +27,7 @@ import {
     }),
     AuthModule,
     UsuariosModule,
+    TransaccionesModule,
     ConditionalModule.registerWhen(DevSessionModule, devSessionHabilitada),
   ],
   controllers: [AppController],
