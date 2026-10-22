@@ -15,6 +15,9 @@ export class Usuario {
 
   @Prop({ type: String, default: null })
   fotoUrl: string | null;
+
+  // Lo agrega Mongoose por `timestamps: true`; no es un @Prop.
+  createdAt: Date;
 }
 
 export type UsuarioDocument = HydratedDocument<Usuario>;

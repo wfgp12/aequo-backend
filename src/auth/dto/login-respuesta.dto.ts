@@ -29,6 +29,14 @@ export class UsuarioRespuestaDto {
     description: 'URL de la foto de perfil de Google, o `null` si la cuenta no tiene foto.',
   })
   fotoUrl: string | null;
+
+  @ApiProperty({
+    type: String,
+    format: 'date-time',
+    example: '2026-10-17T18:08:00.000Z',
+    description: 'Fecha y hora (ISO 8601, UTC) en que el usuario creó su cuenta. Sirve para mostrar "Miembro desde" en el perfil.',
+  })
+  miembroDesde: string;
 }
 
 export class LoginRespuestaDto {
