@@ -101,6 +101,7 @@ export class AuthService {
       nombre: usuario.nombre,
       email: usuario.email,
       fotoUrl: usuario.fotoUrl,
+      miembroDesde: usuario.createdAt.toISOString(),
     };
   }
 

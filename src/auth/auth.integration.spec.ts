@@ -58,6 +58,7 @@ class UsuariosEnMemoria {
             id,
             firebaseUid: filtro.firebaseUid,
             ...update.$setOnInsert,
+            createdAt: new Date(),
           });
         }
         return this.docs.get(filtro.firebaseUid);
@@ -161,8 +162,20 @@ describe('Flujo de login (integración: AuthModule real, Firebase y MongoDB simu
       const deLuis = await perfil(`Bearer ${luis.accessToken}`);
 
       expect(deAna.status).toBe(200);
-      expect(deAna.body).toEqual({ id: ana.usuario.id, nombre: 'Ana', email: 'ana@gmail.com', fotoUrl: 'https://foto/ana.png' });
-      expect(deLuis.body).toEqual({ id: luis.usuario.id, nombre: 'Luis', email: 'luis@gmail.com', fotoUrl: null });
+      expect(deAna.body).toEqual({ id: ana.usuario.id, nombre: 'Ana', email: 'ana@gmail.com', fotoUrl: 'https://foto/ana.png', miembroDesde: expect.any(String) });
+      expect(deLuis.body).toEqual({ id: luis.usuario.id, nombre: 'Luis', email: 'luis@gmail.com', fotoUrl: null, miembroDesde: expect.any(String) });
+    });
+
+    it('miembroDesde es la fecha de creación de la cuenta (ISO 8601) y no cambia en logins posteriores', async () => {
+      verifyIdToken.mockResolvedValue({ uid: 'uid-1', email: 'ana@gmail.com', name: 'Ana' });
+      const primero = (await login({ idToken: 'a' })).body;
+      const segundo = (await login({ idToken: 'b' })).body;
+
+      const enElPerfil = (await perfil(`Bearer ${segundo.accessToken}`)).body;
+
+      expect(primero.usuario.miembroDesde).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+      expect(segundo.usuario.miembroDesde).toBe(primero.usuario.miembroDesde);
+      expect(enElPerfil.miembroDesde).toBe(primero.usuario.miembroDesde);
     });
 
     it('no expone el UID de Firebase ni campos internos', async () => {
@@ -171,7 +184,7 @@ describe('Flujo de login (integración: AuthModule real, Firebase y MongoDB simu
 
       const respuesta = await perfil(`Bearer ${body.accessToken}`);
 
-      expect(Object.keys(respuesta.body).sort()).toEqual(['email', 'fotoUrl', 'id', 'nombre']);
+      expect(Object.keys(respuesta.body).sort()).toEqual(['email', 'fotoUrl', 'id', 'miembroDesde', 'nombre']);
       expect(JSON.stringify(respuesta.body)).not.toContain('uid-secreto');
     });
 
@@ -286,6 +299,7 @@ describe('Flujo de login (integración: AuthModule real, Firebase y MongoDB simu
         nombre: 'Wilhen',
         email: 'wilhen@gmail.com',
         fotoUrl: 'https://foto/1.png',
+        miembroDesde: expect.any(String),
       });
       expect(usuarios.docs.size).toBe(1);
 

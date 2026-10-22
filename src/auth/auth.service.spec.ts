@@ -1,16 +1,24 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { AuthService, SESION_SEGUNDOS } from './auth.service.js';
 
+const MIEMBRO_DESDE = '2026-10-17T18:08:00.000Z';
+
+// Lo que devuelve la API.
 const usuarioGuardado = {
   id: '665f1c2e9b1d4a0012ab34cd',
   nombre: 'Wilhen',
   email: 'wilhen@gmail.com',
   fotoUrl: 'https://foto/1.png',
+  miembroDesde: MIEMBRO_DESDE,
 };
+
+// Lo que devuelve MongoDB: la fecha de creación es un Date en `createdAt`.
+const { miembroDesde: _omitido, ...camposDelDocumento } = usuarioGuardado;
+const documentoGuardado = { ...camposDelDocumento, createdAt: new Date(MIEMBRO_DESDE) };
 
 function crearServicio() {
   const verifyIdToken = vi.fn();
-  const orFail = vi.fn().mockResolvedValue(usuarioGuardado);
+  const orFail = vi.fn().mockResolvedValue(documentoGuardado);
   const findOneAndUpdate = vi.fn().mockReturnValue({ orFail });
   const findById = vi.fn();
   const generar = vi.fn().mockReturnValue('jwt-propio');
@@ -71,7 +79,7 @@ describe('AuthService', () => {
   describe('obtenerPerfil', () => {
     it('devuelve solo los datos públicos del usuario de la sesión, sin el UID de Firebase', async () => {
       const { servicio, findById } = crearServicio();
-      findById.mockResolvedValue({ ...usuarioGuardado, firebaseUid: 'uid-secreto', _id: 'interno' });
+      findById.mockResolvedValue({ ...documentoGuardado, firebaseUid: 'uid-secreto', _id: 'interno' });
 
       const perfil = await servicio.obtenerPerfil(usuarioGuardado.id);
 
