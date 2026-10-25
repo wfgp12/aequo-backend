@@ -1,9 +1,12 @@
-import { Body, Controller, Get, Inject, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiCreatedResponse,
   ApiInternalServerErrorResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -11,11 +14,15 @@ import {
 } from '@nestjs/swagger';
 import { UsuarioActual } from '../auth/decoradores.js';
 import {
+  ErrorConflictoDto,
   ErrorInternoDto,
   ErrorSesionInvalidaDto,
+  ErrorTransaccionNoEncontradaDto,
   ErrorValidacionDto,
 } from '../common/dto/error-respuesta.dto.js';
+import { ActualizarTransaccionDto } from './dto/actualizar-transaccion.dto.js';
 import { CrearTransaccionDto } from './dto/crear-transaccion.dto.js';
+import { IdTransaccionParamDto } from './dto/id-transaccion-param.dto.js';
 import { ListarTransaccionesQueryDto } from './dto/listar-transacciones-query.dto.js';
 import { PaginaTransaccionesRespuestaDto } from './dto/pagina-transacciones-respuesta.dto.js';
 import { TransaccionRespuestaDto } from './dto/transaccion-respuesta.dto.js';
@@ -105,5 +112,78 @@ Registra una transacción **ordinaria** del usuario dueño de la sesión. **Requ
     @Body() dto: CrearTransaccionDto,
   ): Promise<TransaccionRespuestaDto> {
     return this.transacciones.crear(usuarioId, dto);
+  }
+
+  @Patch(':id')
+  @ApiOperation({
+    summary: 'Editar una transacción',
+    description: `
+Modifica una transacción propia. **Requiere sesión:** header \`Authorization: Bearer <accessToken>\`. Se puede editar **cualquier campo, incluido el tipo** (RF-08): un ingreso puede pasar a egreso y al revés.
+
+**Reglas a tener en cuenta**
+- Los campos son los mismos que al crear (\`tipo\`, \`monto\`, \`fecha\`, \`categoriaId\`, \`metodoPago\`, \`descripcion\`), con las mismas reglas, y **todos opcionales pero al menos uno**: solo cambia lo que se envía. Un cuerpo vacío o un campo desconocido responde \`400\`.
+- El movimiento debe quedar coherente: la categoría final tiene que existir, ser general o del usuario y ser del **mismo tipo** que el movimiento. Por eso, **al cambiar el tipo hay que enviar también \`categoriaId\`** con una categoría del nuevo tipo; si no, \`400\` con un mensaje que empieza por \`categoriaId\`.
+- Solo se puede editar una transacción **propia**: si el id no existe o es de otro usuario responde \`404\` con el mismo mensaje, para no revelar qué ids existen.
+- Las transacciones que generan los módulos de tarjetas y deudas (pagos de tarjeta, abonos, préstamos y avances) no se editan aquí: \`409\`.
+- El balance y los reportes se calculan al consultarlos, así que reflejan el cambio sin más pasos.
+`.trim(),
+  })
+  @ApiOkResponse({ type: TransaccionRespuestaDto, description: 'La transacción completa, ya actualizada, con su categoría.' })
+  @ApiBadRequestResponse({
+    type: ErrorValidacionDto,
+    description:
+      'El id no es válido, no se envió ningún campo, algún campo es inválido (monto no positivo, fecha que no es YYYY-MM-DD, método de pago no permitido…), la categoría no corresponde o se envió un campo desconocido. `message` es un arreglo con un texto por problema y no se cambia nada.',
+  })
+  @ApiUnauthorizedResponse({
+    type: ErrorSesionInvalidaDto,
+    description: 'Falta el token, es inválido, está vencido o manipulado. No se cambia nada.',
+  })
+  @ApiNotFoundResponse({ type: ErrorTransaccionNoEncontradaDto, description: 'La transacción no existe o es de otro usuario.' })
+  @ApiConflictResponse({
+    type: ErrorConflictoDto,
+    description: 'Es una transacción que genera otro módulo (tarjetas o deudas): no se puede modificar desde aquí.',
+  })
+  @ApiInternalServerErrorResponse({
+    type: ErrorInternoDto,
+    description: 'Fallo inesperado, por ejemplo MongoDB no disponible. No se cambió nada: reintentar.',
+  })
+  actualizar(
+    @UsuarioActual() usuarioId: string,
+    @Param() { id }: IdTransaccionParamDto,
+    @Body() dto: ActualizarTransaccionDto,
+  ): Promise<TransaccionRespuestaDto> {
+    return this.transacciones.actualizar(usuarioId, id, dto);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  @ApiOperation({
+    summary: 'Eliminar una transacción',
+    description: `
+Elimina una transacción propia. **Requiere sesión:** header \`Authorization: Bearer <accessToken>\`. La confirmación al usuario ("¿eliminar este movimiento?") es responsabilidad del cliente: el borrado es inmediato y permanente.
+
+**Reglas a tener en cuenta**
+- Solo se puede eliminar una transacción **propia**: si el id no existe o es de otro usuario responde \`404\` con el mismo mensaje. Por eso, repetir la petición cuando ya se eliminó responde \`404\`.
+- Las transacciones que generan los módulos de tarjetas y deudas no se eliminan aquí: \`409\`.
+- El balance y los reportes se calculan al consultarlos, así que ya no la cuentan.
+`.trim(),
+  })
+  @ApiNoContentResponse({ description: 'Transacción eliminada. Sin cuerpo.' })
+  @ApiBadRequestResponse({ type: ErrorValidacionDto, description: 'El id no es un id válido. `message` es un arreglo.' })
+  @ApiUnauthorizedResponse({
+    type: ErrorSesionInvalidaDto,
+    description: 'Falta el token, es inválido, está vencido o manipulado. No se elimina nada.',
+  })
+  @ApiNotFoundResponse({ type: ErrorTransaccionNoEncontradaDto, description: 'La transacción no existe o es de otro usuario.' })
+  @ApiConflictResponse({
+    type: ErrorConflictoDto,
+    description: 'Es una transacción que genera otro módulo (tarjetas o deudas): no se puede eliminar desde aquí.',
+  })
+  @ApiInternalServerErrorResponse({
+    type: ErrorInternoDto,
+    description: 'Fallo inesperado, por ejemplo MongoDB no disponible. Reintentar.',
+  })
+  eliminar(@UsuarioActual() usuarioId: string, @Param() { id }: IdTransaccionParamDto): Promise<void> {
+    return this.transacciones.eliminar(usuarioId, id);
   }
 }

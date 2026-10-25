@@ -114,6 +114,22 @@ export class ErrorConflictoDto {
   error: string;
 }
 
+export class ErrorTransaccionNoEncontradaDto {
+  @ApiProperty({ type: Number, example: 404, description: 'Código HTTP de la respuesta.' })
+  statusCode: number;
+
+  @ApiProperty({
+    type: String,
+    example: 'Transacción no encontrada',
+    description:
+      'La transacción no existe o es de otro usuario: no se distingue a propósito, para no revelar qué ids existen.',
+  })
+  message: string;
+
+  @ApiProperty({ type: String, example: 'Not Found', description: 'Nombre del estado HTTP.' })
+  error: string;
+}
+
 export class ErrorRecursoNoEncontradoDto {
   @ApiProperty({ type: Number, example: 404, description: 'Código HTTP de la respuesta.' })
   statusCode: number;
