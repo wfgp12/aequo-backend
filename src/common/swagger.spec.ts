@@ -77,10 +77,10 @@ describe('Documentación Swagger', () => {
     for (const [esquema, definicion] of Object.entries(esquemas)) {
       const propiedades = ('properties' in definicion ? definicion.properties : {}) ?? {};
       for (const [propiedad, datos] of Object.entries(propiedades)) {
-        const d = datos as { description?: string; example?: unknown; $ref?: string; allOf?: unknown[] };
+        const d = datos as { description?: string; example?: unknown; $ref?: string; allOf?: unknown[]; items?: { $ref?: string } };
         // Un $ref apunta a otro DTO, que ya se valida por su cuenta; solo exigimos descripción.
         expect(d.description?.trim(), `${esquema}.${propiedad}: falta description en @ApiProperty`).toBeTruthy();
-        if (!d.$ref && !d.allOf) {
+        if (!d.$ref && !d.allOf && !d.items?.$ref) {
           expect(d.example, `${esquema}.${propiedad}: falta example en @ApiProperty`).toBeDefined();
         }
       }

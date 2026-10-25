@@ -2,16 +2,15 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEnum,
   IsIn,
-  IsISO8601,
   IsMongoId,
   IsNumber,
   IsOptional,
   IsPositive,
   IsString,
-  Matches,
   Max,
   MaxLength,
 } from 'class-validator';
+import { FechaCalendario } from '../../common/validadores.js';
 import { METODOS_DE_PAGO_DE_TRANSACCION, TipoTransaccion } from '../transaccion.enums.js';
 
 export const MONTO_MAXIMO = 999_999_999_999;
@@ -47,8 +46,7 @@ export class CrearTransaccionDto {
     description:
       'Fecha del movimiento en formato YYYY-MM-DD, sin hora ni zona horaria (así no hay desfases entre cliente y servidor). Puede ser pasada o futura. Debe ser una fecha real del calendario.',
   })
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'fecha debe tener el formato YYYY-MM-DD' })
-  @IsISO8601({ strict: true }, { message: 'fecha debe ser una fecha real del calendario (YYYY-MM-DD)' })
+  @FechaCalendario('fecha')
   fecha: string;
 
   @ApiProperty({
