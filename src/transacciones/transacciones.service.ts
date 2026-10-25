@@ -1,9 +1,10 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { type Model, Types } from 'mongoose';
 import type { CategoriaDocument } from '../categorias/categoria.schema.js';
 import { aCategoriaResumen, CategoriasService } from '../categorias/categorias.service.js';
 import { codificarCursor, decodificarCursor } from './cursor.js';
+import type { ActualizarTransaccionDto } from './dto/actualizar-transaccion.dto.js';
 import type { CrearTransaccionDto } from './dto/crear-transaccion.dto.js';
 import { LIMITE_POR_DEFECTO, type ListarTransaccionesQueryDto } from './dto/listar-transacciones-query.dto.js';
 import type { PaginaTransaccionesRespuestaDto } from './dto/pagina-transacciones-respuesta.dto.js';
@@ -66,6 +67,62 @@ export class TransaccionesService {
       clasificacionFlujo: ClasificacionFlujo.ORDINARIO,
     });
     return aTransaccionRespuesta(transaccion, categoria);
+  }
+
+  /**
+   * Edita cualquier campo de una transacción propia, incluido el tipo (RF-08). Solo cambia lo que llega. El resultado
+   * debe quedar coherente: la categoría final tiene que existir, ser general o del usuario y ser del tipo final del
+   * movimiento; por eso, al cambiar el tipo hay que enviar también una categoría del nuevo tipo.
+   */
+  async actualizar(usuarioId: string, id: string, dto: ActualizarTransaccionDto): Promise<TransaccionRespuestaDto> {
+    if (Object.values(dto).every((valor) => valor === undefined)) {
+      throw new BadRequestException(['Debes enviar al menos un campo para modificar']);
+    }
+    const transaccion = await this.obtenerPropia(usuarioId, id, 'modificar');
+    const tipo = dto.tipo ?? transaccion.tipo;
+    const categoria = await this.categorias.obtenerDisponible(usuarioId, dto.categoriaId ?? String(transaccion.categoriaId));
+    if (!categoria || categoria.tipo !== tipo) {
+      throw new BadRequestException([
+        dto.tipo !== undefined && dto.categoriaId === undefined
+          ? 'categoriaId es obligatorio al cambiar el tipo: envía una categoría del nuevo tipo'
+          : 'categoriaId debe ser una categoría general o tuya del mismo tipo que el movimiento',
+      ]);
+    }
+
+    transaccion.tipo = tipo;
+    transaccion.categoriaId = categoria._id;
+    if (dto.monto !== undefined) transaccion.monto = dto.monto;
+    if (dto.fecha !== undefined) transaccion.fecha = aFecha(dto.fecha);
+    if (dto.metodoPago !== undefined) transaccion.metodoPago = dto.metodoPago;
+    if (dto.descripcion !== undefined) transaccion.descripcion = dto.descripcion;
+    await transaccion.save();
+    return aTransaccionRespuesta(transaccion, categoria);
+  }
+
+  /** Elimina una transacción propia. El balance y los reportes se calculan al consultarlos, así que ya no la cuentan. */
+  async eliminar(usuarioId: string, id: string): Promise<void> {
+    const transaccion = await this.obtenerPropia(usuarioId, id, 'eliminar');
+    await this.transacciones.deleteOne({ _id: transaccion._id });
+  }
+
+  /**
+   * La transacción solo si es del usuario (404 si no existe o es de otro, sin distinguirlos) y es ordinaria: las que
+   * generan los módulos de tarjetas y deudas (pagos, abonos, préstamos y avances) se gestionan desde esos módulos.
+   */
+  private async obtenerPropia(usuarioId: string, id: string, accion: 'modificar' | 'eliminar') {
+    const transaccion = await this.transacciones.findOne({
+      _id: new Types.ObjectId(id),
+      usuarioId: new Types.ObjectId(usuarioId),
+    });
+    if (!transaccion) {
+      throw new NotFoundException('Transacción no encontrada');
+    }
+    if (transaccion.clasificacionFlujo !== ClasificacionFlujo.ORDINARIO) {
+      throw new ConflictException(
+        `Esta transacción la genera otro módulo (tarjetas o deudas) y no se puede ${accion} desde aquí`,
+      );
+    }
+    return transaccion;
   }
 
   /**
