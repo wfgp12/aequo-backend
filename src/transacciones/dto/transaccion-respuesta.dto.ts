@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { CategoriaResumenDto } from '../../categorias/dto/categoria-respuesta.dto.js';
 import { ClasificacionFlujo, METODOS_DE_PAGO_DE_TRANSACCION, TipoTransaccion } from '../transaccion.enums.js';
 
 export class TransaccionRespuestaDto {
@@ -35,6 +36,14 @@ export class TransaccionRespuestaDto {
       'Id de la categoría. Es null en las transacciones que no cuentan por categoría (pagos de tarjeta y abonos a deudas), que crean otros módulos.',
   })
   categoriaId: string | null;
+
+  @ApiProperty({
+    type: CategoriaResumenDto,
+    nullable: true,
+    description:
+      'La categoría completa (id, nombre, tipo y si es general), para mostrar su nombre sin otra petición. Es null en las transacciones sin categoría.',
+  })
+  categoria: CategoriaResumenDto | null;
 
   @ApiProperty({
     enum: METODOS_DE_PAGO_DE_TRANSACCION,

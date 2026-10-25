@@ -55,7 +55,7 @@ export class CrearTransaccionDto {
     type: String,
     example: '665f1c2e9b1d4a0012ab34cd',
     description:
-      'Id de la categoría del movimiento. Por ahora solo se valida que tenga formato de id; la comprobación de que la categoría exista y sea del usuario se agrega con el módulo de categorías.',
+      'Id de la categoría del movimiento, tal como lo devuelve GET /categorias. Debe existir, ser una categoría general o del propio usuario y ser del mismo tipo que el movimiento (una categoría de EGRESO no sirve para un INGRESO); si no, responde 400.',
   })
   @IsMongoId({ message: 'categoriaId debe ser un id de categoría válido' })
   categoriaId: string;
