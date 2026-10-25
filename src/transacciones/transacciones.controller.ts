@@ -1,9 +1,10 @@
-import { Body, Controller, Inject, Post } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Post, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiInternalServerErrorResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
@@ -15,6 +16,8 @@ import {
   ErrorValidacionDto,
 } from '../common/dto/error-respuesta.dto.js';
 import { CrearTransaccionDto } from './dto/crear-transaccion.dto.js';
+import { ListarTransaccionesQueryDto } from './dto/listar-transacciones-query.dto.js';
+import { PaginaTransaccionesRespuestaDto } from './dto/pagina-transacciones-respuesta.dto.js';
 import { TransaccionRespuestaDto } from './dto/transaccion-respuesta.dto.js';
 import { TransaccionesService } from './transacciones.service.js';
 
@@ -23,6 +26,45 @@ import { TransaccionesService } from './transacciones.service.js';
 @Controller('transacciones')
 export class TransaccionesController {
   constructor(@Inject(TransaccionesService) private readonly transacciones: TransaccionesService) {}
+
+  @Get()
+  @ApiOperation({
+    summary: 'Listar y filtrar las transacciones',
+    description: `
+Devuelve las transacciones del usuario dueño de la sesión, de la más reciente a la más antigua, en páginas. **Requiere sesión:** header \`Authorization: Bearer <accessToken>\`. Solo se ven las transacciones propias.
+
+**Filtros (todos opcionales y combinables)**
+- \`desde\` y \`hasta\` (\`YYYY-MM-DD\`, ambos **incluidos**): el filtro Desde/Hasta de la lista de movimientos. \`desde\` no puede ser posterior a \`hasta\`.
+- \`tipo\` (\`INGRESO\` o \`EGRESO\`), \`categoriaId\` y \`metodoPago\`.
+
+**Orden y carga progresiva**
+- Orden fijo: por fecha descendente y, a igual fecha, la registrada más recientemente primero.
+- Se devuelven \`limite\` transacciones por página (1 a 100, por defecto 20) y un \`siguienteCursor\`. Para la página siguiente se repite la **misma consulta** enviando \`cursor=<siguienteCursor>\`; cuando \`siguienteCursor\` es \`null\` ya no hay más.
+- El cursor es **opaco**: no se interpreta ni se arma. Es estable: si el usuario registra movimientos nuevos mientras hace scroll, no se repiten ni se saltan transacciones.
+- Cada item trae la categoría completa en \`categoria\` (para mostrar su nombre sin otra petición). Una categoría eliminada ya no aparece porque sus movimientos pasaron a la general de respaldo.
+- No hay conteo total de resultados.
+`.trim(),
+  })
+  @ApiOkResponse({ type: PaginaTransaccionesRespuestaDto, description: 'Una página de transacciones y el cursor de la siguiente.' })
+  @ApiBadRequestResponse({
+    type: ErrorValidacionDto,
+    description:
+      'Algún parámetro es inválido: fecha que no es YYYY-MM-DD o no existe, `desde` posterior a `hasta`, `limite` fuera de 1 a 100, `cursor` que no es uno devuelto por este endpoint, un filtro con un valor no permitido o un parámetro desconocido. `message` es un arreglo con un texto por problema.',
+  })
+  @ApiUnauthorizedResponse({
+    type: ErrorSesionInvalidaDto,
+    description: 'Falta el token, es inválido, está vencido o manipulado.',
+  })
+  @ApiInternalServerErrorResponse({
+    type: ErrorInternoDto,
+    description: 'Fallo inesperado, por ejemplo MongoDB no disponible. Reintentar más tarde.',
+  })
+  listar(
+    @UsuarioActual() usuarioId: string,
+    @Query() consulta: ListarTransaccionesQueryDto,
+  ): Promise<PaginaTransaccionesRespuestaDto> {
+    return this.transacciones.listar(usuarioId, consulta);
+  }
 
   @Post()
   @ApiOperation({

@@ -100,6 +100,15 @@ export class CategoriasService {
     return categoria;
   }
 
+  /** Varias categorías por id, indexadas por id, para completar el listado de transacciones con su nombre. */
+  async obtenerPorIds(ids: string[]): Promise<Map<string, CategoriaDocument>> {
+    if (ids.length === 0) {
+      return new Map();
+    }
+    const categorias = await this.categorias.find({ _id: { $in: ids.map((id) => new Types.ObjectId(id)) } });
+    return new Map(categorias.map((categoria) => [String(categoria._id), categoria]));
+  }
+
   /** Para editar o eliminar: debe ser del usuario (404 si no existe o es de otro) y no general (403). */
   private async obtenerPropia(usuarioId: string, id: string, accion: 'modificar' | 'eliminar') {
     const categoria = await this.obtenerDisponible(usuarioId, id);
