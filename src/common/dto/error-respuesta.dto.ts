@@ -83,3 +83,49 @@ export class ErrorInternoDto {
   })
   error?: string;
 }
+
+export class ErrorProhibidoDto {
+  @ApiProperty({ type: Number, example: 403, description: 'Código HTTP de la respuesta.' })
+  statusCode: number;
+
+  @ApiProperty({
+    type: String,
+    example: 'Las categorías generales no se pueden modificar',
+    description: 'Motivo por el que la operación no está permitida, en texto.',
+  })
+  message: string;
+
+  @ApiProperty({ type: String, example: 'Forbidden', description: 'Nombre del estado HTTP.' })
+  error: string;
+}
+
+export class ErrorConflictoDto {
+  @ApiProperty({ type: Number, example: 409, description: 'Código HTTP de la respuesta.' })
+  statusCode: number;
+
+  @ApiProperty({
+    type: String,
+    example: 'Ya existe una categoría con ese nombre',
+    description: 'Motivo del conflicto con datos que ya existen, en texto.',
+  })
+  message: string;
+
+  @ApiProperty({ type: String, example: 'Conflict', description: 'Nombre del estado HTTP.' })
+  error: string;
+}
+
+export class ErrorRecursoNoEncontradoDto {
+  @ApiProperty({ type: Number, example: 404, description: 'Código HTTP de la respuesta.' })
+  statusCode: number;
+
+  @ApiProperty({
+    type: String,
+    example: 'Categoría no encontrada',
+    description:
+      'El recurso no existe o es de otro usuario: no se distingue a propósito, para no revelar qué ids existen.',
+  })
+  message: string;
+
+  @ApiProperty({ type: String, example: 'Not Found', description: 'Nombre del estado HTTP.' })
+  error: string;
+}

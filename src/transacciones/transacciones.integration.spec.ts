@@ -7,15 +7,51 @@ import request from 'supertest';
 import { AuthModule } from '../auth/auth.module.js';
 import { FIREBASE_AUTH } from '../auth/firebase-auth.provider.js';
 import { TokenService } from '../auth/token.service.js';
+import { Categoria } from '../categorias/categoria.schema.js';
 import { crearValidationPipe } from '../common/validation-pipe.js';
 import { Usuario } from '../usuarios/usuario.schema.js';
 import { Transaccion } from './transaccion.schema.js';
 import { TransaccionesModule } from './transacciones.module.js';
 
 const USUARIO_ID = '665f1c2e9b1d4a0012ab34cd';
-const CATEGORIA_ID = '665f1c2e9b1d4a0012ab34ce';
+const OTRO_USUARIO_ID = '665f1c2e9b1d4a0012ab34ff';
+const nuevoId = () => new mongoose.Types.ObjectId();
 
-/** Colección en memoria: guarda lo que el servicio le pide crear, con los campos que añade Mongoose. */
+const EGRESO_GENERAL = nuevoId();
+const INGRESO_GENERAL = nuevoId();
+const EGRESO_PROPIA = nuevoId();
+const EGRESO_AJENA = nuevoId();
+const CATEGORIA_ID = EGRESO_GENERAL.toString();
+
+const categoria = (_id: mongoose.Types.ObjectId, nombre: string, tipo: string, usuarioId: string | null) => ({
+  _id,
+  id: _id.toString(),
+  usuarioId: usuarioId ? new mongoose.Types.ObjectId(usuarioId) : null,
+  nombre,
+  tipo,
+  esPredeterminada: usuarioId === null,
+});
+
+/** Colección de categorías en memoria: lo que el servicio busca por id, y sin necesidad de sembrar. */
+class CategoriasEnMemoria {
+  readonly docs = [
+    categoria(EGRESO_GENERAL, 'Alimentación', 'EGRESO', null),
+    categoria(INGRESO_GENERAL, 'Otros ingresos', 'INGRESO', null),
+    categoria(EGRESO_PROPIA, 'Mascotas', 'EGRESO', USUARIO_ID),
+    categoria(EGRESO_AJENA, 'Gimnasio', 'EGRESO', OTRO_USUARIO_ID),
+  ];
+
+  async findById(id: string) {
+    return this.docs.find((doc) => doc.id === id) ?? null;
+  }
+
+  // La siembra del arranque consulta cuántas generales hay; con estas, no siembra nada.
+  async countDocuments() {
+    return this.docs.filter((doc) => doc.esPredeterminada).length;
+  }
+}
+
+/** Colección de transacciones en memoria: guarda lo que el servicio le pide crear, con los campos que añade Mongoose. */
 class TransaccionesEnMemoria {
   readonly docs: Array<Record<string, unknown>> = [];
 
@@ -56,6 +92,8 @@ describe('POST /transacciones (integración: guard de sesión real y MongoDB sim
       .useValue({})
       .overrideProvider(getModelToken(Transaccion.name))
       .useValue(guardadas)
+      .overrideProvider(getModelToken(Categoria.name))
+      .useValue(new CategoriasEnMemoria())
       .overrideProvider(FIREBASE_AUTH)
       .useValue({})
       .compile();
@@ -77,7 +115,7 @@ describe('POST /transacciones (integración: guard de sesión real y MongoDB sim
   };
 
   describe('registro correcto', () => {
-    it('registra un egreso y devuelve la transacción como quedó guardada (201)', async () => {
+    it('registra un egreso y devuelve la transacción como quedó guardada, con su categoría (201)', async () => {
       const { status, body } = await crear(valido({ descripcion: 'Mercado de la semana' }));
 
       expect(status).toBe(201);
@@ -87,6 +125,7 @@ describe('POST /transacciones (integración: guard de sesión real y MongoDB sim
         monto: 45000,
         fecha: '2026-10-20',
         categoriaId: CATEGORIA_ID,
+        categoria: { id: CATEGORIA_ID, nombre: 'Alimentación', tipo: 'EGRESO', esPredeterminada: true },
         metodoPago: 'EFECTIVO',
         descripcion: 'Mercado de la semana',
         clasificacionFlujo: 'ORDINARIO',
@@ -95,11 +134,26 @@ describe('POST /transacciones (integración: guard de sesión real y MongoDB sim
     });
 
     it('el mismo endpoint registra ingresos: el tipo lo fija el cliente', async () => {
-      const { status, body } = await crear(valido({ tipo: 'INGRESO', metodoPago: 'TRANSFERENCIA' }));
+      const { status, body } = await crear(
+        valido({ tipo: 'INGRESO', metodoPago: 'TRANSFERENCIA', categoriaId: INGRESO_GENERAL.toString() }),
+      );
 
       expect(status).toBe(201);
       expect(body.tipo).toBe('INGRESO');
       expect(body.metodoPago).toBe('TRANSFERENCIA');
+      expect(body.categoria.nombre).toBe('Otros ingresos');
+    });
+
+    it('acepta una categoría personalizada del propio usuario', async () => {
+      const { status, body } = await crear(valido({ categoriaId: EGRESO_PROPIA.toString() }));
+
+      expect(status).toBe(201);
+      expect(body.categoria).toEqual({
+        id: EGRESO_PROPIA.toString(),
+        nombre: 'Mascotas',
+        tipo: 'EGRESO',
+        esPredeterminada: false,
+      });
     });
 
     it('la transacción queda a nombre del usuario del JWT, como ORDINARIA, con la fecha a medianoche UTC', async () => {
@@ -138,6 +192,22 @@ describe('POST /transacciones (integración: guard de sesión real y MongoDB sim
 
       expect(status).toBe(201);
       expect(body.fecha).toBe(fecha);
+    });
+  });
+
+  describe('categoría del movimiento', () => {
+    it.each([
+      ['no existe', nuevoId().toString(), 'EGRESO'],
+      ['es personalizada de otro usuario', EGRESO_AJENA.toString(), 'EGRESO'],
+      ['es de INGRESO y el movimiento es un EGRESO', INGRESO_GENERAL.toString(), 'EGRESO'],
+      ['es de EGRESO y el movimiento es un INGRESO', EGRESO_GENERAL.toString(), 'INGRESO'],
+    ])('responde 400 con un mensaje que empieza por categoriaId si la categoría %s', async (_caso, categoriaId, tipo) => {
+      const { status, body } = await crear(valido({ categoriaId, tipo }));
+
+      expect(status).toBe(400);
+      expect(Array.isArray(body.message)).toBe(true);
+      expect(body.message.some((mensaje: string) => mensaje.startsWith('categoriaId'))).toBe(true);
+      expect(guardadas.docs).toHaveLength(0);
     });
   });
 
@@ -202,7 +272,7 @@ describe('POST /transacciones (integración: guard de sesión real y MongoDB sim
       );
     });
 
-    it.each(['usuarioId', 'clasificacionFlujo', 'tarjetaId', 'deudaId', 'id', 'creadaEn'])(
+    it.each(['usuarioId', 'clasificacionFlujo', 'tarjetaId', 'deudaId', 'id', 'creadaEn', 'categoria'])(
       'rechaza el campo %s: el cliente no lo decide y se rechaza en vez de ignorarse',
       async (campo) => {
         const { status, body } = await crear(valido({ [campo]: CATEGORIA_ID }));

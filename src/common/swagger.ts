@@ -37,6 +37,10 @@ export const construirConfigSwagger = () =>
     .addTag('auth', 'Inicio de sesión con Google (Firebase) y emisión del JWT de sesión propio de la app.')
     .addTag('usuarios', 'Perfil y cuenta del usuario autenticado. Requieren sesión (JWT).')
     .addTag(
+      'categorias',
+      'Categorías con las que se clasifican los movimientos: generales del sistema (las define el administrador; no se editan ni eliminan) y personalizadas del usuario. Al eliminar una personalizada, sus movimientos pasan a la general de respaldo. Requieren sesión (JWT).',
+    )
+    .addTag(
       'transacciones',
       'Registro y consulta de los ingresos y egresos del usuario autenticado. Un solo endpoint para ingresos y egresos: el cliente fija el campo `tipo`. Requieren sesión (JWT).',
     )
