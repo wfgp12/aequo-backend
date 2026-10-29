@@ -13,6 +13,7 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { UsuarioActual } from '../auth/decoradores.js';
+import { Idempotente } from '../idempotencia/idempotente.decorator.js';
 import {
   ErrorConflictoDto,
   ErrorInternoDto,
@@ -74,6 +75,7 @@ Devuelve las transacciones del usuario dueño de la sesión, de la más reciente
   }
 
   @Post()
+  @Idempotente()
   @ApiOperation({
     summary: 'Registrar un ingreso o un egreso',
     description: `
@@ -86,6 +88,7 @@ Registra una transacción **ordinaria** del usuario dueño de la sesión. **Requ
 - El body debe contener solo los campos documentados; uno de más (por ejemplo \`clasificacionFlujo\`, \`tarjetaId\` o \`deudaId\`) responde \`400\`. Este endpoint crea solo transacciones ordinarias: los pagos de tarjeta, abonos a deudas y préstamos o avances los generan los módulos de tarjetas y deudas.
 - **Tarjeta de crédito:** \`metodoPago\` no admite \`TARJETA_CREDITO\`. Una compra con tarjeta no es una transacción: se registra en el módulo de tarjetas (\`comprascredito\`) y afecta el balance cuando se paga la tarjeta (regla de flujo de caja, ADR-014).
 - \`fecha\` es un día del calendario (\`YYYY-MM-DD\`), pasada o futura, sin hora ni zona horaria.
+- **No se duplica por error:** envía un header \`Idempotency-Key\` (UUID) por acción del usuario. Si la petición se repite con la misma clave (doble toque, reintento de red), no se crea una segunda transacción: se devuelve la misma respuesta de la primera vez con \`Idempotent-Replayed: true\`.
 - El balance del periodo no se guarda: se calcula al consultarlo, así que crear la transacción ya lo refleja.
 - **Categoría:** \`categoriaId\` debe existir, ser una categoría general o del propio usuario y ser del mismo tipo que el movimiento; si no, responde \`400\` con un mensaje que empieza por \`categoriaId\`. La respuesta incluye la categoría completa en \`categoria\`, para mostrar su nombre sin otra petición.
 `.trim(),

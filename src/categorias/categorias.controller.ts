@@ -14,6 +14,7 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { UsuarioActual } from '../auth/decoradores.js';
+import { Idempotente } from '../idempotencia/idempotente.decorator.js';
 import {
   ErrorConflictoDto,
   ErrorInternoDto,
@@ -76,6 +77,7 @@ Devuelve las categorías que el usuario puede usar al registrar un movimiento: l
   }
 
   @Post()
+  @Idempotente()
   @ApiOperation({
     summary: 'Crear una categoría personalizada',
     description: `
@@ -86,6 +88,7 @@ Crea una categoría personalizada del usuario, indicando su nombre y su tipo (in
 - El nombre va de 1 a 40 caracteres (se recortan los espacios de los extremos) y no puede repetir el de otra categoría **del mismo tipo** que el usuario ya tenga o que sea general, sin distinguir mayúsculas ni tildes: si lo repite responde \`409\`. Un ingreso y un egreso sí pueden llamarse igual.
 - El tipo no se puede cambiar después.
 - El cuerpo debe contener solo \`nombre\` y \`tipo\`; un campo de más responde \`400\`.
+- **No se duplica por error:** envía un header \`Idempotency-Key\` (UUID) por acción del usuario; si la petición se repite con la misma clave, se devuelve la misma respuesta de la primera vez en lugar de crear otra categoría.
 `.trim(),
   })
   @ApiCreatedResponse({ type: CategoriaRespuestaDto, description: 'Categoría creada, con `movimientos` en 0.' })

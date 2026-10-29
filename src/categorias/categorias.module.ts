@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { IdempotenciaModule } from '../idempotencia/idempotencia.module.js';
 import { Transaccion, TransaccionSchema } from '../transacciones/transaccion.schema.js';
 import { Categoria, CategoriaSchema } from './categoria.schema.js';
 import { CategoriasController } from './categorias.controller.js';
@@ -11,6 +12,7 @@ import { CategoriasSemilla } from './categorias-semilla.service.js';
 // CategoriasModule dependa de TransaccionesModule, que a su vez depende de este.
 @Module({
   imports: [
+    IdempotenciaModule,
     MongooseModule.forFeature([
       { name: Categoria.name, schema: CategoriaSchema },
       { name: Transaccion.name, schema: TransaccionSchema },
