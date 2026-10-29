@@ -27,6 +27,39 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
+  # Cada commit del PR respeta su carril: las pruebas y los criterios solo entran
+  # en commits "test:", y un commit "test:" no trae codigo de produccion.
+  pruebas-protegidas:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Revisar los commits del PR
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          protegidas='(\.spec\.ts$|^test/|^criterios/[^_])'
+          produccion='^src/'
+          errores=0
+          for sha in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            asunto=$(git log -1 --format=%s "$sha")
+            archivos=$(git diff-tree --no-commit-id --name-only -r "$sha")
+            pruebas=$(echo "$archivos" | grep -E "$protegidas" || true)
+            codigo=$(echo "$archivos" | grep -E "$produccion" | grep -vE "$protegidas" || true)
+            if [[ "$asunto" =~ ^test(\(.*\))?!?: ]]; then
+              if [ -n "$codigo" ]; then
+                echo "::error::$sha \"$asunto\" es un commit test: pero modifica codigo de produccion:"; echo "$codigo"; errores=1
+              fi
+            elif [ -n "$pruebas" ]; then
+              echo "::error::$sha \"$asunto\" modifica pruebas o criterios sin ser un commit test::"; echo "$pruebas"; errores=1
+            fi
+          done
+          exit $errores
+
   # Pruebas de mutacion solo sobre los archivos de logica que cambiaron en el PR.
   mutacion:
     if: github.event_name == 'pull_request'
