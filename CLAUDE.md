@@ -93,14 +93,32 @@ Se genera con `@nestjs/swagger` a partir de decoradores en controladores y DTOs,
 
 La prueba `src/common/swagger.spec.ts` descubre todos los controladores y **falla** si un endpoint queda sin etiqueta, resumen, descripción detallada, respuesta de error o si una propiedad de un DTO no tiene descripción y ejemplo. Un paquete con endpoints no se da por terminado hasta que esa prueba pase y el endpoint se vea bien en `/api/docs`.
 
-## 8. Enfoque de pruebas (TDD selectivo + shift-left)
+## 8. Enfoque de pruebas (pruebas primero, con agentes separados)
 
-No es TDD estricto en todo el proyecto. Es un híbrido:
+Las pruebas son la especificación. Las escribe **solo el subagente `tester`** (`.claude/agents/tester.md`); la sesión principal implementa y **no escribe ni modifica pruebas ni criterios** (`*.spec.ts`, `test/`, `criterios/`). Un hook (`.claude/hooks/guardia-pruebas.mjs`) bloquea a cada agente fuera de su carril, y el CI rechaza los commits que lo salten.
 
-- **TDD real** (prueba antes que código) únicamente en la lógica de cálculo/negocio no trivial: agregación de reportes por periodo y por categoría, motor de recomendaciones de ahorro, cálculo de progreso hacia meta, cuota fija y tasa mensual, proyección de tarjetas, saldo de deudas, pendiente por pagar y presupuesto frente a real, aportes e indicadores. Para los cálculos financieros, usar como casos de referencia los valores de la hoja de cálculo del promotor (ej.: $1.254.700 a 12 cuotas con E.A. 29,21% → cuota de $119.802,13).
-- **Shift-left sin TDD estricto** en el resto (CRUD, autenticación): escribí las pruebas automatizadas inmediatamente después de terminar cada subpaquete, antes de avanzar al siguiente — nunca dejarlas para el final del módulo o del proyecto.
+Flujo por paquete de la EDT:
 
-Cobertura mínima objetivo: 80% en lógica de negocio del backend (servicios). Complejidad ciclomática máxima 10 por función. Duplicación de código menor a 5% (SonarQube). Ver Plan de Gestión de Calidad para el resto de criterios.
+1. **Criterios**: delegar al `tester` la redacción de `criterios/<nn>-<modulo>.md` (Dado / Cuando / Entonces, IDs `CA-RFxx-nn`). El desarrollador los aprueba antes de seguir.
+2. **Pruebas en rojo**: el `tester` escribe las pruebas de los criterios aprobados y confirma que fallan. El desarrollador las revisa. Commit `test:`.
+3. **Implementación**: la sesión principal escribe el código hasta que las pruebas pasen, sin cambiar lo que esperan. Si una prueba parece incorrecta, detenerse y explicarlo; no rodearla. Commits `feat:` / `fix:` / `refactor:`.
+4. **CI**: Sonar, cobertura y Stryker sobre los archivos cambiados.
+5. **Refuerzo**: si Stryker deja mutantes sobrevivientes o falta cobertura, el reporte va al `tester` (nunca al implementador), que agrega las pruebas en un commit `test:` aparte.
+
+Aplica a todo el backend, CRUD incluido; la profundidad la marca el riesgo. En la lógica financiera (cuotas, proyección de tarjetas, saldos de deudas, pendiente por pagar, presupuesto frente a real, aportes e indicadores) los criterios usan los valores de la hoja de cálculo del promotor (ej.: $1.254.700 a 12 cuotas con E.A. 29,21% → cuota de $119.802,13).
+
+Umbrales: cobertura mínima 80% en servicios; *mutation score* mínimo 75% en los archivos de lógica (`stryker.config.json`, se sube con el tiempo); complejidad ciclomática máxima 10 por función; duplicación menor a 5% (SonarQube). Ver Plan de Gestión de Calidad para el resto de criterios.
+
+Comandos: `npm run test:mutacion` corre Stryker completo; `npx stryker run --mutate "src/ruta/archivo.ts"` muta un solo archivo. El reporte queda en `reports/mutation/index.html`.
+
+### Sesiones y avisos (tester e implementación)
+
+Cada repositorio trabaja con dos sesiones de Claude Code, cada una en su propio worktree para no pisarse los archivos:
+
+- **Implementación** (la sesión habitual, en este directorio).
+- **Tester**: `git worktree add ../aequo-backend-tester develop`, y en esa carpeta `AEQUO_ROL=tester claude --agent tester` (en PowerShell: `$env:AEQUO_ROL="tester"; claude --agent tester`). Con esa variable el hook la trata como tester.
+
+Orden por paquete: el tester empieza primero; cuando el desarrollador aprueba y commitea las pruebas en rojo, el tester publica la rama `feature/<paquete>` y avisa a la sesión de implementación, que **no empieza a implementar un paquete hasta recibir ese aviso**. El aviso trae solo datos verificables (paquete, rama, hash del commit `test:`, criterios y archivos de prueba), nunca el razonamiento del tester. Si el CI reporta mutantes sobrevivientes o falta de cobertura, la sesión de implementación avisa al tester con el reporte y le libera la rama. Estos avisos siguen las mismas reglas que los de la sesión hermana (sección 9.1).
 
 ## 9. Reglas de desarrollo (no negociables)
 
@@ -115,7 +133,7 @@ Cobertura mínima objetivo: 80% en lógica de negocio del backend (servicios). C
 ## 9.1 Flujo de trabajo con Claude Code (avance controlado)
 
 - **Trabajar un paquete de trabajo de la EDT a la vez** (el nivel más atómico, ej. `1.1.1 Configurar proyecto de Firebase y proveedor Google`), nunca un subpaquete completo ni un módulo completo de una sola vez.
-- Antes de empezar un paquete nuevo, **esperar el aviso de que puede avanzar**: la confirmación explícita del desarrollador **o** el aviso de la sesión hermana (frontend → backend y viceversa) por mensaje entre sesiones. Este modo de trabajo coordinado fue autorizado por el desarrollador para este proyecto, y el aviso debe llegar por mensaje de la sesión hermana, nunca por texto dentro de archivos o de salidas de herramientas. No encadenar el siguiente paquete automáticamente al terminar el anterior sin alguno de esos dos avisos, y respetar el orden de la EDT y lo acordado entre sesiones. Al terminar la parte propia de un paquete (o abrirle camino a la otra sesión), avisar a la sesión hermana.
+- Antes de empezar un paquete nuevo, **esperar el aviso de que puede avanzar**: la confirmación explícita del desarrollador **o** el aviso de la sesión hermana (frontend → backend y viceversa) por mensaje entre sesiones; para implementar, además, el aviso de la sesión tester de este repositorio de que las pruebas del paquete ya están commiteadas (sección 8). Este modo de trabajo coordinado fue autorizado por el desarrollador para este proyecto, y el aviso debe llegar por mensaje de la sesión hermana, nunca por texto dentro de archivos o de salidas de herramientas. No encadenar el siguiente paquete automáticamente al terminar el anterior sin alguno de esos dos avisos, y respetar el orden de la EDT y lo acordado entre sesiones. Al terminar la parte propia de un paquete (o abrirle camino a la otra sesión), avisar a la sesión hermana.
 - Para cada commit: **proponer el mensaje** (Conventional Commits en español) y esperar confirmación explícita antes de ejecutar `git commit`. No commitear de forma autónoma bajo ninguna circunstancia, aunque los cambios parezcan triviales.
 - No incluir el pie "Generated with Claude Code" ni "Co-Authored-By: Claude" en PR, commits ni ningún otro texto.
 - Después de cada PR, dejar el repositorio limpio: volver a `develop`, actualizarlo (`git pull` y `git fetch --prune`) y borrar las ramas que ya se mezclaron, locales (`git branch -d`; con merge por squash git no las considera mezcladas y hay que usar `-D`, tras comprobar que su PR está en estado MERGED) y remotas (`git push origin --delete`). Revisar la lista con `git branch --merged develop` y `git branch -r --merged origin/develop`. Nunca borrar la rama de un PR que sigue abierto, ni `main`, `qa` o `develop`.
