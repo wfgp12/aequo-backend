@@ -27,3 +27,7 @@ lerna-debug.log*
 
 # Credenciales de service account de Firebase
 *firebase-adminsdk*.json
+
+# Stryker (pruebas de mutación)
+/reports
+.stryker-tmp
