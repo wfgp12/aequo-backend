@@ -116,7 +116,7 @@ Comandos: `npm run test:mutacion` corre Stryker completo; `npx stryker run --mut
 Cada repositorio trabaja con dos sesiones de Claude Code, cada una en su propia carpeta para no pisarse los archivos ni la rama:
 
 - **Implementación**: la sesión habitual, abierta en `aequo-backend`.
-- **Tester**: abierta en el worktree `aequo-backend-tester`, que se crea una sola vez desde este repo con `git worktree add ../aequo-backend-tester develop` (y `npm ci` dentro). Es una segunda copia de trabajo del mismo repositorio, no otro clon.
+- **Tester**: abierta en el worktree `aequo-backend-tester`, que se crea una sola vez desde este repo con `git worktree add --detach ../aequo-backend-tester develop` (y `npm ci` dentro); `--detach` es necesario porque `develop` suele estar activa en la carpeta de implementación y git no deja un mismo branch en dos carpetas a la vez, así que el tester parte de `develop` sin ocuparla y crea desde ahí sus propias ramas `feature/<paquete>`. Es una segunda copia de trabajo del mismo repositorio, no otro clon.
 
 **Si tu carpeta de trabajo termina en `-tester`, eres la sesión tester:** antes de cualquier tarea lee `.claude/agents/tester.md` y sigue esas instrucciones en lugar de las de implementación. El hook reconoce esa carpeta y solo te deja escribir pruebas y criterios. En Claude Code desktop basta con abrir la sesión eligiendo esa carpeta; desde la terminal también sirve `claude --agent tester` con `AEQUO_ROL=tester`.
 
