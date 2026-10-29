@@ -26,3 +26,48 @@ jobs:
       - uses: SonarSource/sonarqube-scan-action@v4
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # Pruebas de mutacion solo sobre los archivos de logica que cambiaron en el PR.
+  mutacion:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - uses: actions/cache@v4
+        with:
+          path: reports/stryker-incremental.json
+          key: stryker-${{ github.base_ref }}-${{ github.run_id }}
+          restore-keys: stryker-${{ github.base_ref }}-
+
+      - name: Mutar los archivos cambiados
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Mismas exclusiones que "mutate" en stryker.config.json
+          archivos=$(git diff --name-only --diff-filter=AMR "$BASE...HEAD" \
+            | grep -E '^src/.*\.ts$' \
+            | grep -vE '\.spec\.ts$|/dto/|\.schema\.ts$|\.module\.ts$|\.controller\.ts$|\.enums\.ts$|^src/main\.ts$|^src/common/swagger\.ts$|^src/auth/dev-' \
+            | paste -sd, - || true)
+          if [ -z "$archivos" ]; then
+            echo "No hay archivos de logica que mutar en este PR."
+            exit 0
+          fi
+          echo "Mutando: $archivos"
+          npx stryker run --mutate "$archivos"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reporte-mutacion
+          path: reports/mutation
+          if-no-files-found: ignore
