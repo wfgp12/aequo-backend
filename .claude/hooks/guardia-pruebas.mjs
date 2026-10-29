@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Guardia de carriles entre el agente tester y el agente que implementa.
 //
-// - El agente "tester" solo puede escribir pruebas y criterios de aceptación. Es tester
-//   el subagente llamado "tester" o la sesión abierta con AEQUO_ROL=tester
-//   (sesión propia del tester, ver CLAUDE.md).
+// - El agente "tester" solo puede escribir pruebas y criterios de aceptación. Es tester:
+//   el subagente llamado "tester", una sesión abierta en el worktree cuya carpeta
+//   termina en "-tester" (así se usa desde Claude Code desktop) o una sesión de
+//   terminal con AEQUO_ROL=tester. Ver CLAUDE.md.
 // - Cualquier otro agente (la sesión principal, que implementa) no puede tocarlos.
 //
 // Claude Code ejecuta este script antes de cada Edit/Write/MultiEdit/NotebookEdit
@@ -35,7 +36,9 @@ const relativa = path.relative(raiz, path.resolve(raiz, destino)).split(path.sep
 if (relativa.startsWith('..')) process.exit(0); // fuera del repo: no es asunto de esta guardia
 
 const esProtegida = PROTEGIDAS.some((patron) => patron.test(relativa));
-const esTester = entrada.agent_type === AGENTE_TESTER || process.env.AEQUO_ROL === AGENTE_TESTER;
+const esCarpetaTester = path.basename(path.resolve(raiz)).endsWith(`-${AGENTE_TESTER}`);
+const esTester =
+  entrada.agent_type === AGENTE_TESTER || process.env.AEQUO_ROL === AGENTE_TESTER || esCarpetaTester;
 
 if (esTester && !esProtegida) {
   console.error(

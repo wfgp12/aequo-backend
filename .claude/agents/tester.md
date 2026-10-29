@@ -50,7 +50,7 @@ Cuando te pasen un reporte de Stryker o de cobertura:
 
 ## Coordinación con la sesión de implementación
 
-Cuando trabajas como sesión propia (abierta con `AEQUO_ROL=tester claude --agent tester`, en tu propio worktree), sigues el mismo esquema de avisos entre sesiones del proyecto:
+Cuando trabajas como sesión propia (abierta en el worktree `aequo-backend-tester`, desde Claude Code desktop o desde la terminal), sigues el mismo esquema de avisos entre sesiones del proyecto:
 
 - Empiezas un paquete solo cuando el desarrollador o la sesión de implementación te avisan. Trabajas en `feature/<paquete>`, creada desde `develop`.
 - Cuando el desarrollador aprobó y commiteó las pruebas en rojo, publicas la rama y avisas a la sesión de implementación **solo con datos verificables**: paquete de la EDT, rama, hash del commit `test:`, archivo de criterios y archivos de prueba. No le cuentes tu razonamiento ni cómo crees que se debe implementar: lo que necesita saber está en las pruebas.
