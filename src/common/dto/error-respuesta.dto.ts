@@ -84,6 +84,21 @@ export class ErrorInternoDto {
   error?: string;
 }
 
+export class ErrorNoProcesableDto {
+  @ApiProperty({ type: Number, example: 422, description: 'Código HTTP de la respuesta.' })
+  statusCode: number;
+
+  @ApiProperty({
+    type: String,
+    example: 'La clave Idempotency-Key ya se usó con otra petición: genera una clave nueva para una acción nueva',
+    description: 'La petición está bien formada, pero no se puede procesar tal como llegó.',
+  })
+  message: string;
+
+  @ApiProperty({ type: String, example: 'Unprocessable Entity', description: 'Nombre del estado HTTP.' })
+  error: string;
+}
+
 export class ErrorProhibidoDto {
   @ApiProperty({ type: Number, example: 403, description: 'Código HTTP de la respuesta.' })
   statusCode: number;

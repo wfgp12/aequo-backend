@@ -8,6 +8,7 @@ import { AuthModule } from '../auth/auth.module.js';
 import { FIREBASE_AUTH } from '../auth/firebase-auth.provider.js';
 import { TokenService } from '../auth/token.service.js';
 import { crearValidationPipe } from '../common/validation-pipe.js';
+import { Idempotencia } from '../idempotencia/idempotencia.schema.js';
 import { Transaccion } from '../transacciones/transaccion.schema.js';
 import { Usuario } from '../usuarios/usuario.schema.js';
 import { Categoria } from './categoria.schema.js';
@@ -132,6 +133,9 @@ describe('Categorías (integración: guard de sesión real y MongoDB simulado)',
       .useValue(categorias)
       .overrideProvider(getModelToken(Transaccion.name))
       .useValue(transacciones)
+      // El módulo de idempotencia registra su modelo; estas pruebas no envían Idempotency-Key, así que no se usa.
+      .overrideProvider(getModelToken(Idempotencia.name))
+      .useValue({})
       .overrideProvider(FIREBASE_AUTH)
       .useValue({})
       .compile();
