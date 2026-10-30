@@ -9,6 +9,7 @@ import { FIREBASE_AUTH } from '../auth/firebase-auth.provider.js';
 import { TokenService } from '../auth/token.service.js';
 import { Categoria } from '../categorias/categoria.schema.js';
 import { crearValidationPipe } from '../common/validation-pipe.js';
+import { Idempotencia } from '../idempotencia/idempotencia.schema.js';
 import { Transaccion } from '../transacciones/transaccion.schema.js';
 import { TransaccionesModule } from '../transacciones/transacciones.module.js';
 import { Usuario } from '../usuarios/usuario.schema.js';
@@ -166,6 +167,8 @@ describe('GET /reportes/periodo (integración: guard de sesión real y MongoDB s
       .useValue(transacciones)
       .overrideProvider(getModelToken(Categoria.name))
       .useValue(categorias)
+      .overrideProvider(getModelToken(Idempotencia.name))
+      .useValue({})
       .overrideProvider(FIREBASE_AUTH)
       .useValue({})
       .compile();
