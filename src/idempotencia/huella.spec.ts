@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { calcularHuella } from './huella.js';
 
 const cuerpo = { tipo: 'EGRESO', monto: 45000, fecha: '2026-10-20', categoriaId: 'abc', metodoPago: 'EFECTIVO' };
@@ -42,5 +43,47 @@ describe('calcularHuella', () => {
 
   it('es un hash hexadecimal de 64 caracteres', () => {
     expect(calcularHuella('POST', '/x', cuerpo)).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+const sha256 = (texto: string) => createHash('sha256').update(texto).digest('hex');
+
+const permutaciones = <T>(elementos: T[]): T[][] =>
+  elementos.length <= 1
+    ? [elementos]
+    : elementos.flatMap((elemento, i) =>
+        permutaciones([...elementos.slice(0, i), ...elementos.slice(i + 1)]).map((resto) => [elemento, ...resto]),
+      );
+
+// Las huellas ya guardadas se comparan con las que se calculen tras un despliegue: el formato no puede cambiar en silencio.
+describe('formato de la huella', () => {
+  it('CA-RF06-27 es el SHA-256 de "METODO RUTA", un salto de línea y el cuerpo en JSON canónico', () => {
+    expect(calcularHuella('POST', '/transacciones', undefined)).toBe(sha256('POST /transacciones\n{}'));
+    expect(calcularHuella('post', '/transacciones', { tipo: 'EGRESO', monto: 45000 })).toBe(
+      sha256('POST /transacciones\n{"monto":45000,"tipo":"EGRESO"}'),
+    );
+  });
+
+  it('CA-RF06-28 ordena las claves por código de carácter, con el mismo resultado para cualquier orden de llegada', () => {
+    const campos: [string, number][] = [
+      ['a', 1],
+      ['b', 2],
+      ['c', 3],
+      ['d', 4],
+    ];
+
+    for (const orden of permutaciones(campos)) {
+      expect(calcularHuella('POST', '/x', Object.fromEntries(orden))).toBe(
+        sha256('POST /x\n{"a":1,"b":2,"c":3,"d":4}'),
+      );
+    }
+    expect(calcularHuella('POST', '/x', { a: 1, B: 2 })).toBe(sha256('POST /x\n{"B":2,"a":1}'));
+  });
+
+  it('CA-RF06-29 serializa nulos, primitivos y listas como JSON, y un undefined dentro de una lista como null', () => {
+    expect(
+      calcularHuella('POST', '/x', { a: null, b: 'x', c: true, l: [1, { z: 1, y: 2 }, 'x'] }),
+    ).toBe(sha256('POST /x\n{"a":null,"b":"x","c":true,"l":[1,{"y":2,"z":1},"x"]}'));
+    expect(calcularHuella('POST', '/x', { l: [1, undefined] })).toBe(sha256('POST /x\n{"l":[1,null]}'));
   });
 });

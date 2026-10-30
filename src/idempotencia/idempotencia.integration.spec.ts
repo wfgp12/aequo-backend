@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { INestApplication } from '@nestjs/common';
+import { Logger, type INestApplication } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { getModelToken } from '@nestjs/mongoose';
 import { Test } from '@nestjs/testing';
@@ -391,6 +391,120 @@ describe('Deduplicación de peticiones con Idempotency-Key (integración: guard 
         expect(transacciones.docs).toHaveLength(0);
       },
     );
+  });
+
+  describe('refuerzo: fallos de la base de datos y límites de la clave', () => {
+    const duplicada = () => Object.assign(new Error('E11000 duplicate key error'), { code: 11000 });
+
+    /** Hace que los primeros `veces` intentos de reclamar la clave choquen con "ya existe" sin que la clave aparezca al consultarla. */
+    const chocarAlReclamar = (veces: number) => {
+      const original = claves.create.bind(claves);
+      let intentos = 0;
+      claves.create = async (datos: Doc) => {
+        intentos++;
+        if (intentos <= veces) throw duplicada();
+        return original(datos);
+      };
+      return () => intentos;
+    };
+
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    it.each([
+      ['un error sin código', () => new Error('MongoDB no disponible')],
+      ['un error con otro código', () => Object.assign(new Error('Document failed validation'), { code: 121 })],
+    ])('CA-RF06-21 un fallo inesperado al reclamar la clave responde 500, no 409 (%s)', async (_caso, crearError) => {
+      claves.create = async () => {
+        throw crearError();
+      };
+
+      const { status } = await crear(cuerpo(), randomUUID());
+
+      expect(status).toBe(500);
+      expect(transacciones.docs).toHaveLength(0);
+    });
+
+    it('CA-RF06-22 si la clave se libera entre medias, se vuelve a reclamar y la petición se ejecuta', async () => {
+      const intentos = chocarAlReclamar(1);
+
+      const { status } = await crear(cuerpo(), randomUUID());
+
+      expect(status).toBe(201);
+      expect(intentos()).toBe(2);
+      expect(transacciones.docs).toHaveLength(1);
+    });
+
+    it('CA-RF06-23 el reintento de reclamo está acotado: tras dos intentos responde 409 sin ejecutar nada', async () => {
+      const intentos = chocarAlReclamar(Number.POSITIVE_INFINITY);
+
+      const { status, body } = await crear(cuerpo(), randomUUID());
+
+      expect(status).toBe(409);
+      expect(body.message).toBe('La petición ya se está procesando: espera su resultado antes de reintentar');
+      expect(intentos()).toBe(2);
+      expect(transacciones.docs).toHaveLength(0);
+    });
+
+    it.each([
+      ['exactamente 2 minutos todavía bloquea', 120_000, 409, 0],
+      ['2 minutos y 1 ms se da por abandonada', 120_001, 201, 1],
+    ])('CA-RF06-24 una clave en proceso con %s', async (_caso, antiguedadMs, estadoEsperado, creadas) => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const ahora = new Date();
+      vi.setSystemTime(ahora);
+      const clave = randomUUID();
+      claves.docs.push({
+        _id: new ObjectId(),
+        usuarioId: new ObjectId(USUARIO_ID),
+        clave,
+        huella: calcularHuella('POST', '/transacciones', cuerpo()),
+        estado: 'EN_PROCESO',
+        respuesta: null,
+        createdAt: new Date(ahora.getTime() - antiguedadMs),
+      });
+
+      const { status } = await crear(cuerpo(), clave);
+
+      expect(status).toBe(estadoEsperado);
+      expect(transacciones.docs).toHaveLength(creadas);
+    });
+
+    it('CA-RF06-25 si no se puede guardar la respuesta, la creación igual se responde y se deja constancia', async () => {
+      const registro = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      const falla = new Error('MongoDB caído');
+      claves.updateOne = async () => {
+        throw falla;
+      };
+      const clave = randomUUID();
+
+      const primera = await crear(cuerpo(), clave);
+
+      expect(primera.status).toBe(201);
+      expect(primera.body.id).toBe(transacciones.docs[0].id);
+      expect(registro).toHaveBeenCalledWith(
+        `No se pudo guardar la respuesta de la clave ${String(claves.docs[0]._id)}`,
+        falla,
+      );
+      const reintento = await crear(cuerpo(), clave);
+      expect(reintento.status).toBe(409);
+      expect(transacciones.docs).toHaveLength(1);
+    });
+
+    it('CA-RF06-26 si no se puede liberar la clave, se responde el error original y se deja constancia', async () => {
+      const registro = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      const falla = new Error('MongoDB caído');
+      claves.deleteOne = async () => {
+        throw falla;
+      };
+
+      const { status } = await crear(cuerpo({ monto: 0 }), randomUUID());
+
+      expect(status).toBe(400);
+      expect(registro).toHaveBeenCalledWith(`No se pudo liberar la clave ${String(claves.docs[0]._id)}`, falla);
+    });
   });
 
   it('el header no afecta a las peticiones que no crean datos', async () => {
