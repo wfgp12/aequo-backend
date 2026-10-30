@@ -24,6 +24,7 @@ const operaciones = (documento: OpenAPIObject) =>
         tags?: string[];
         summary?: string;
         description?: string;
+        parameters?: Array<{ in?: string; name?: string }>;
         responses: Record<string, { description?: string }>;
       },
     })),
@@ -83,6 +84,16 @@ describe('Documentación Swagger', () => {
         if (!d.$ref && !d.allOf && !d.items?.$ref) {
           expect(d.example, `${esquema}.${propiedad}: falta example en @ApiProperty`).toBeDefined();
         }
+      }
+    }
+  });
+
+  it('cada petición que crea datos (POST con respuesta 201) documenta el header Idempotency-Key', () => {
+    for (const { nombre, op } of operaciones(documento)) {
+      if (nombre.startsWith('POST') && op.responses['201']) {
+        const tieneHeader = op.parameters?.some((p) => p.in === 'header' && p.name === 'Idempotency-Key');
+
+        expect(tieneHeader, `${nombre}: falta @Idempotente() (deduplicación de peticiones)`).toBe(true);
       }
     }
   });
