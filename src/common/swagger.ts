@@ -45,6 +45,10 @@ export const construirConfigSwagger = () =>
       'Registro y consulta de los ingresos y egresos del usuario autenticado. Un solo endpoint para ingresos y egresos: el cliente fija el campo `tipo`. Requieren sesión (JWT).',
     )
     .addTag(
+      'reportes',
+      'Resúmenes calculados al consultar a partir de los movimientos del usuario autenticado: totales del periodo (mes actual por defecto, otro mes o un rango de fechas). Los totales siguen la regla de flujo de caja: el dinero recibido (préstamos y avances) no es ingreso propio y las compras con tarjeta afectan el balance cuando se paga la tarjeta. Requieren sesión (JWT).',
+    )
+    .addTag(
       'desarrollo',
       'Rutas que SOLO existen con NODE_ENV=development y DEV_SESSION_ENABLED=true. Nunca disponibles en producción.',
     )
