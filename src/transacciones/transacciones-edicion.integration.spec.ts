@@ -238,6 +238,34 @@ describe('PATCH y DELETE /transacciones/:id (integración: guard de sesión real
       });
     });
 
+    describe('el mensaje de la categoría dice qué corregir (paquete 2.2.6)', () => {
+      it('CA-RF08-04 al cambiar el tipo sin enviar categoría pide una categoría del nuevo tipo', async () => {
+        const { status, body } = await editar(mia.id, { tipo: 'INGRESO' });
+
+        expect(status).toBe(400);
+        expect(body.message).toEqual([
+          'categoriaId es obligatorio al cambiar el tipo: envía una categoría del nuevo tipo',
+        ]);
+        expect(mia.tipo).toBe('EGRESO');
+      });
+
+      it.each([
+        ['de otro tipo que el movimiento', () => sueldo.id, {}],
+        ['personalizada de otro usuario', () => gimnasioAjeno.id, {}],
+        ['inexistente', () => new ObjectId().toString(), {}],
+        ['de egreso al cambiar a ingreso', () => alimentacion.id, { tipo: 'INGRESO' }],
+        ['inexistente al cambiar a ingreso', () => new ObjectId().toString(), { tipo: 'INGRESO' }],
+      ])('CA-RF08-05 si la categoría es %s, el mensaje es el de categoría no disponible', async (_caso, obtenerId, extra) => {
+        const { status, body } = await editar(mia.id, { categoriaId: obtenerId(), ...extra });
+
+        expect(status).toBe(400);
+        expect(body.message).toEqual([
+          'categoriaId debe ser una categoría general o tuya del mismo tipo que el movimiento',
+        ]);
+        expect(mia.categoriaId).toBe(alimentacion._id);
+      });
+    });
+
     describe('datos inválidos', () => {
       it.each([
         ['monto en cero', 'monto', { monto: 0 }],
