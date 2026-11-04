@@ -20,6 +20,7 @@ En esta página: pulsa **Authorize**, pega el \`accessToken\` (sin la palabra Be
 - **Errores:** siempre con la forma \`{ statusCode, message, error }\`. En los \`400\` de validación \`message\` es un arreglo de textos; en el resto es un texto.
 - El usuario se identifica por el **UID de Firebase**, nunca por el correo.
 - Los montos están en pesos colombianos.
+- **Zona horaria:** los endpoints de reportes que usan "hoy" (\`GET /reportes/periodo\` y \`GET /reportes/categorias\`) aceptan el header opcional \`X-Zona-Horaria\` con un nombre de zona IANA (ejemplo: \`America/Bogota\`). Solo decide qué mes es el "mes actual" cuando no se envía \`mes\` ni \`desde\`/\`hasta\`; sin el header se usa UTC. Un nombre inválido responde \`400\` aunque se envíe \`mes\` o un rango.
 `.trim();
 
 export const construirConfigSwagger = () =>

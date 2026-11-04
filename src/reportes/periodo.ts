@@ -14,11 +14,20 @@ function delMes(anio: number, mes: number): Periodo {
   return { desde: `${anio}-${dos(mes)}-01`, hasta: `${anio}-${dos(mes)}-${dos(ultimo)}` };
 }
 
+/** Año y mes calendario de `instante` en la zona horaria IANA dada (sigue el horario de verano). */
+function mesEnZona(instante: Date, zona: string): { anio: number; mes: number } {
+  const partes = new Intl.DateTimeFormat('en-US', { timeZone: zona, year: 'numeric', month: 'numeric' }).formatToParts(
+    instante,
+  );
+  const valor = (tipo: string) => Number(partes.find((parte) => parte.type === tipo)?.value);
+  return { anio: valor('year'), mes: valor('month') };
+}
+
 /**
- * El periodo que pide la consulta: un mes (`mes`), un rango (`desde` + `hasta`) o, sin parámetros, el mes de `hoy`.
- * "Hoy" se toma en UTC, como el servidor guarda las fechas.
+ * El periodo que pide la consulta: un mes (`mes`), un rango (`desde` + `hasta`) o, sin parámetros, el mes de `hoy`
+ * visto desde `zona` (UTC si no se indica); la zona solo influye en este último caso.
  */
-export function resolverPeriodo({ mes, desde, hasta }: PeriodoQueryDto, hoy: Date): Periodo {
+export function resolverPeriodo({ mes, desde, hasta }: PeriodoQueryDto, hoy: Date, zona = 'UTC'): Periodo {
   if (mes && (desde || hasta)) {
     throw new BadRequestException(['mes no se puede combinar con desde ni hasta: elige un mes o un rango']);
   }
@@ -33,5 +42,6 @@ export function resolverPeriodo({ mes, desde, hasta }: PeriodoQueryDto, hoy: Dat
     const [anio, numero] = mes.split('-').map(Number);
     return delMes(anio, numero);
   }
-  return delMes(hoy.getUTCFullYear(), hoy.getUTCMonth() + 1);
+  const actual = mesEnZona(hoy, zona);
+  return delMes(actual.anio, actual.mes);
 }

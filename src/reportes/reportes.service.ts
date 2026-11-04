@@ -29,8 +29,8 @@ export class ReportesService {
    * consultar, no se guarda, así que crear, editar o eliminar un movimiento se refleja de inmediato. Las peticiones
    * inválidas se rechazan antes de consultar la base. Los totales conservan la precisión completa (RNF-11).
    */
-  async obtenerPorPeriodo(usuarioId: string, consulta: PeriodoQueryDto): Promise<PeriodoRespuestaDto> {
-    const periodo = resolverPeriodo(consulta, new Date());
+  async obtenerPorPeriodo(usuarioId: string, consulta: PeriodoQueryDto, zona?: string): Promise<PeriodoRespuestaDto> {
+    const periodo = resolverPeriodo(consulta, new Date(), zona);
     const movimientos = await this.transacciones
       .find({
         usuarioId: new Types.ObjectId(usuarioId),
@@ -56,8 +56,12 @@ export class ReportesService {
    * pagos de tarjeta y los abonos se excluyen para no contar dos veces). El gasto cuya categoría ya no se encuentra,
    * o que no tiene, se reúne en una entrada "Sin categoría" para que las entradas siempre sumen el total.
    */
-  async obtenerPorCategoria(usuarioId: string, consulta: PeriodoQueryDto): Promise<CategoriasRespuestaDto> {
-    const periodo = resolverPeriodo(consulta, new Date());
+  async obtenerPorCategoria(
+    usuarioId: string,
+    consulta: PeriodoQueryDto,
+    zona?: string,
+  ): Promise<CategoriasRespuestaDto> {
+    const periodo = resolverPeriodo(consulta, new Date(), zona);
     const grupos = await this.sumarGastoPorCategoria(usuarioId, periodo);
     const nombres = await this.categorias.obtenerPorIds(grupos.flatMap(({ _id }) => (_id ? [String(_id)] : [])));
 
