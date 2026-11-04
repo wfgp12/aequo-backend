@@ -14,7 +14,7 @@
     ]
   },
   "permissions": {
-    "additionalDirectories": ["../coordinacion"],
+    "additionalDirectories": ["../coordinacion", "../aequo-backend-tester"],
     "allow": [
       "Bash(npm test)",
       "Bash(npm test *)",
@@ -35,7 +35,13 @@
       "Bash(git rev-parse *)",
       "Bash(git branch --merged *)",
       "Bash(git branch -r --merged *)",
-      "Bash(git fetch *)"
+      "Bash(git fetch *)",
+      "Bash(cd ../aequo-backend-tester && npx vitest *)",
+      "Bash(cd ../aequo-backend-tester && npx stryker run *)",
+      "Bash(git -C ../aequo-backend-tester status *)",
+      "Bash(git -C ../aequo-backend-tester diff *)",
+      "Bash(git -C ../aequo-backend-tester log *)",
+      "Bash(git -C ../aequo-backend-tester fetch *)"
     ],
     "ask": [
       "Bash(git commit *)",
@@ -43,6 +49,12 @@
       "Bash(git checkout *)",
       "Bash(git switch *)",
       "Bash(git merge *)",
+      "Bash(git -C * commit *)",
+      "Bash(git -C * push *)",
+      "Bash(git -C * checkout *)",
+      "Bash(git -C * switch *)",
+      "Bash(git -C * merge *)",
+      "Bash(git worktree *)",
       "Bash(npm install *)",
       "Bash(npm i *)",
       "Bash(npm ci)",
@@ -52,7 +64,9 @@
       "Bash(git push --force *)",
       "Bash(git push -f *)",
       "Bash(git push * --force*)",
-      "Bash(git push * -f)"
+      "Bash(git push * -f)",
+      "Bash(git -C * push --force*)",
+      "Bash(git -C * push -f*)"
     ]
   }
 }

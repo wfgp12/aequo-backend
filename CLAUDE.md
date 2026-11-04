@@ -102,24 +102,33 @@ Las pruebas son la especificación. Cada repositorio lo coordina **una sola sesi
 | Rol | Qué es | Escribe | No toca |
 |---|---|---|---|
 | **Arquitecto** (`arquitecto-back`) | Sesión principal | Documentación, configuración de agentes (`.claude/`), `../coordinacion/` | Código de producción, `*.spec.ts`, `test/`, `criterios/` |
-| **`tester`** (`.claude/agents/tester.md`) | Subagente | `criterios/`, `src/**/*.spec.ts`, `test/` | Código de producción |
+| **`tester`** (`.claude/agents/tester.md`) | Subagente, en su worktree `../aequo-backend-tester` | `criterios/`, `src/**/*.spec.ts`, `test/` | Código de producción; nada fuera de su worktree |
 | **`implementador`** (`.claude/agents/implementador.md`) | Subagente | Código de producción (`src/`) | `*.spec.ts`, `test/`, `criterios/` |
 
-Los tres trabajan en esta misma carpeta, en la rama que abre el arquitecto. Los subagentes no hacen commits y entregan su resultado como reporte final al arquitecto. Un hook (`.claude/hooks/guardia-pruebas.mjs`) bloquea a cada agente fuera de su carril (solo el subagente `tester` puede escribir pruebas y criterios, y solo eso), y el CI rechaza los commits que lo salten.
+**El tester trabaja aparte, en su propio worktree** (`../aequo-backend-tester`), para que escriba las pruebas solo a partir de los criterios de aceptación y nunca vea ni se contagie de la implementación (ver "El worktree del tester" más abajo). El arquitecto y el implementador trabajan en esta carpeta, en la rama que abre el arquitecto. Los subagentes no hacen commits y entregan su resultado como reporte final al arquitecto. Un hook (`.claude/hooks/guardia-pruebas.mjs`) bloquea a cada agente fuera de su carril (solo el subagente `tester` puede escribir pruebas y criterios, y solo desde su worktree; nadie más escribe allí), y el CI rechaza los commits que lo salten.
 
 Flujo por paquete de la EDT:
 
 1. **Criterios**: el arquitecto toma el paquete y lanza al `tester` para redactar `criterios/<nn>-<modulo>.md` (Dado / Cuando / Entonces, IDs `CA-RFxx-nn`). El desarrollador los aprueba antes de seguir.
-2. **Pruebas en rojo**: el `tester` escribe las pruebas de los criterios aprobados y confirma que fallan por la razón esperada. El desarrollador las aprueba y el arquitecto propone el commit `test:`.
-3. **Implementación**: con las pruebas aprobadas y commiteadas, el arquitecto lanza al `implementador`, que escribe el código hasta que pasen, sin cambiar lo que esperan. Si una prueba parece incorrecta, se detiene y se lo explica al arquitecto; no la rodea. El arquitecto decide (y, si hay que corregir la prueba, se la pasa al `tester` con aprobación del desarrollador).
+2. **Pruebas en rojo**: el `tester` escribe, en su worktree, las pruebas de los criterios aprobados y confirma que fallan por la razón esperada. El desarrollador las aprueba, el arquitecto propone el commit `test:` y, con la confirmación del desarrollador, lo hace en el worktree del tester y publica la rama `feature/<paquete>`.
+3. **Implementación**: el arquitecto trae esa rama a esta carpeta (el worktree del tester vuelve a `develop`) y lanza al `implementador`, que escribe el código hasta que pasen, sin cambiar lo que esperan. Si una prueba parece incorrecta, se detiene y se lo explica al arquitecto; no la rodea. El arquitecto decide (y, si hay que corregir la prueba, se la pasa al `tester` con aprobación del desarrollador).
 4. **Verificación**: el arquitecto corre la suite completa, el lint, el build y Stryker sobre los archivos cambiados, revisa el diff y propone el commit `feat:` / `fix:` / `refactor:`. Después el CI corre Sonar, cobertura y Stryker.
-5. **Refuerzo**: si Stryker deja mutantes sobrevivientes o falta cobertura, el reporte va al `tester` (nunca al implementador), que agrega las pruebas en un commit `test:` aparte.
+5. **Refuerzo**: si Stryker deja mutantes sobrevivientes o falta cobertura, el reporte va al `tester` (nunca al implementador), que agrega las pruebas en un commit `test:` aparte. Para eso el arquitecto libera la rama en esta carpeta y la abre en el worktree del tester.
 
 Aplica a todo el backend, CRUD incluido; la profundidad la marca el riesgo. En la lógica financiera (cuotas, proyección de tarjetas, saldos de deudas, pendiente por pagar, presupuesto frente a real, aportes e indicadores) los criterios usan los valores de la hoja de cálculo del promotor (ej.: $1.254.700 a 12 cuotas con E.A. 29,21% → cuota de $119.802,13).
 
 Umbrales: cobertura mínima 80% en servicios; *mutation score* mínimo 75% en los archivos de lógica (`stryker.config.json`, se sube con el tiempo); complejidad ciclomática máxima 10 por función; duplicación menor a 5% (SonarQube). Ver Plan de Gestión de Calidad para el resto de criterios.
 
 Comandos: `npm run test:mutacion` corre Stryker completo; `npx stryker run --mutate "src/ruta/archivo.ts"` muta un solo archivo. El reporte queda en `reports/mutation/index.html`.
+
+### El worktree del tester
+
+El `tester` es un agente externo al código que se genera: escribe los criterios y las pruebas sin ver la implementación, para que las pruebas salgan de los criterios y no del código. Por eso vive en un segundo worktree del mismo repositorio, `../aequo-backend-tester`, que parte de `develop` (donde el paquete en curso aún no existe). Se crea una sola vez desde esta carpeta con `git worktree add --detach ../aequo-backend-tester develop` y `npm ci` dentro (`--detach` evita el error de Git cuando `develop` ya está abierta aquí).
+
+- El arquitecto lanza al subagente `tester` indicándole la **ruta absoluta de su worktree** y solo el paquete, los criterios o el reporte que debe trabajar. No le pasa el diff ni el razonamiento del implementador.
+- Para cada paquete, el arquitecto crea la rama en el worktree del tester (`git -C ../aequo-backend-tester switch -c feature/<paquete> origin/develop`). Terminado el commit `test:`, el worktree vuelve a `develop` (`git -C ../aequo-backend-tester switch --detach origin/develop`) y la rama se abre en esta carpeta, porque Git no deja una misma rama abierta en dos carpetas.
+- El hook decide por la carpeta del archivo, no por la de la sesión: en el worktree `-tester` solo escribe el subagente `tester` y solo pruebas y criterios; fuera de él, el `tester` no escribe nada.
+- Mantener el worktree al día: antes de cada paquete, `git -C ../aequo-backend-tester fetch` y partir de `origin/develop`; si cambian las dependencias, `npm ci` allí también.
 
 ### Comunicación con el frontend y el estado compartido
 
