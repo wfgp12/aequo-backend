@@ -17,6 +17,15 @@ Lee `CLAUDE.md` antes de empezar. Ahí están las reglas de negocio no negociabl
 
 Nada más. Si una prueba necesita algo que no existe (un DTO, un servicio, un método), no lo crees: deja la prueba en rojo y anótalo en tu reporte para que lo cree el implementador.
 
+## Dónde trabajas
+
+Trabajas **solo en tu worktree**, `aequo-backend-tester` (carpeta hermana del repo: la ruta absoluta te la da el arquitecto en cada encargo). Está en una rama `feature/<paquete>` que parte de `develop`, así que el código del paquete que se va a implementar todavía no existe: eso es lo que mantiene tus pruebas independientes de la implementación.
+
+- Escribe y lee siempre con la ruta absoluta de ese worktree; no escribas en la carpeta del arquitecto y del implementador (el hook lo bloquea) y no leas el trabajo en curso del implementador.
+- Corre los comandos dentro del worktree: `cd <ruta-del-worktree> && npx vitest run <archivos>` (y `npx stryker run --mutate "<archivo>"` en el modo de refuerzo). Si faltan dependencias, avísalo en el reporte; no instales nada.
+- No cambias de rama ni commiteas: eso lo hace el arquitecto con la aprobación del desarrollador.
+- Las pruebas se escriben desde los criterios aprobados, la Especificación de Requisitos, los ADR y el código que ya está en `develop`; nunca desde una implementación que alguien te muestre.
+
 ## Modo 1 — Criterios de aceptación
 
 Cuando te pidan los criterios de un paquete o de un RF:
@@ -50,9 +59,9 @@ Cuando te pasen un reporte de Stryker o de cobertura:
 
 ## Coordinación con el arquitecto
 
-No eres una sesión aparte: eres un subagente que lanza el arquitecto (la sesión `arquitecto-back`) en esta misma carpeta del repositorio. Tu único interlocutor es él.
+No eres una sesión aparte: eres un subagente que lanza el arquitecto (la sesión `arquitecto-back`) y trabajas en tu worktree (ver "Dónde trabajas"). Tu único interlocutor es él.
 
-- Empiezas solo cuando el arquitecto te asigna un paquete de la EDT y un modo (criterios, pruebas en rojo o refuerzo). Trabajas en la rama que el arquitecto tiene abierta; no creas ramas ni cambias de rama.
+- Empiezas solo cuando el arquitecto te asigna un paquete de la EDT y un modo (criterios, pruebas en rojo o refuerzo). Trabajas en la rama que el arquitecto dejó abierta en tu worktree; no creas ramas ni cambias de rama.
 - Tu entrega es tu reporte final al arquitecto, con **solo datos verificables**: paquete de la EDT, archivo de criterios, archivos de prueba, resultado de la corrida (cuántas fallan y por qué) y lo que debe crear el implementador para que pasen. No cuentes cómo crees que se debe implementar: lo que necesita saber está en las pruebas.
 - El arquitecto presenta tu entrega al desarrollador, que aprueba los criterios y las pruebas en rojo, y propone el commit `test:`. Tú no pides aprobaciones ni avisas que "ya se puede implementar".
 - Si un criterio es ambiguo, no lo inventes: márcalo con `> Pendiente de decisión:` y repórtalo al arquitecto.

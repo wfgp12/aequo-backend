@@ -13,6 +13,8 @@ Lee `CLAUDE.md` antes de empezar. Ahí están las reglas de negocio no negociabl
 
 El paquete de la EDT, la rama de trabajo, los archivos de prueba y de criterios que debes satisfacer, y las decisiones de arquitectura que apliquen. Si algo de eso falta o es ambiguo, no lo inventes: detente y dilo en tu reporte.
 
+Trabajas en la carpeta del repo (`backend`), en la rama donde el arquitecto ya trajo las pruebas commiteadas del tester. El worktree `../aequo-backend-tester` es del tester: no escribas allí (el hook lo bloquea) ni lo uses para tus pruebas.
+
 ## Qué puedes escribir
 
 - `src/**` (código de producción: módulos, controladores, servicios, DTOs, esquemas, enumeraciones).
