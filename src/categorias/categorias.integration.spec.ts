@@ -84,13 +84,20 @@ class CategoriasEnMemoria {
 class TransaccionesEnMemoria {
   docs: Array<{ usuarioId: string; categoriaId: string }> = [];
 
+  /** Interpreta $match y $group como MongoDB: "$campo" agrupa por ese campo, un valor constante deja un solo grupo. */
   async aggregate(pipeline: Doc[]) {
     const { usuarioId, categoriaId } = pipeline[0].$match;
+    const grupo = pipeline[1]?.$group;
+    if (!grupo || !('_id' in grupo)) {
+      throw new Error('a group specification must include an _id');
+    }
     const ids = (categoriaId.$in as unknown[]).map(String);
+    const agruparPor = (t: Doc) => (typeof grupo._id === 'string' && grupo._id.startsWith('$') ? t[grupo._id.slice(1)] : grupo._id);
     const cuentas = new Map<string, number>();
     for (const t of this.docs) {
       if (t.usuarioId === String(usuarioId) && ids.includes(t.categoriaId)) {
-        cuentas.set(t.categoriaId, (cuentas.get(t.categoriaId) ?? 0) + 1);
+        const clave = String(agruparPor(t));
+        cuentas.set(clave, (cuentas.get(clave) ?? 0) + (grupo.total?.$sum === 1 ? 1 : 0));
       }
     }
     return [...cuentas].map(([_id, total]) => ({ _id, total }));
@@ -176,6 +183,32 @@ describe('Categorías (integración: guard de sesión real y MongoDB simulado)',
       ]);
     });
 
+    it('CA-RF10-09 ordena por tipo, generales antes que propias y por nombre, sin importar el orden en que se crearon', async () => {
+      categorias.sembrar('Zapatos', 'EGRESO', USUARIO_ID);
+      categorias.sembrar('Ahorros', 'INGRESO', USUARIO_ID);
+      categorias.sembrar('Transporte', 'EGRESO', null);
+      categorias.sembrar('Árbol', 'EGRESO', USUARIO_ID);
+      categorias.sembrar('Hogar', 'EGRESO', null);
+      categorias.sembrar('Bonos', 'INGRESO', null);
+      categorias.sembrar('Mascotas', 'EGRESO', USUARIO_ID);
+
+      const { body } = await llamar('get', '/categorias');
+
+      expect(body.items.map((c: Doc) => `${c.tipo}:${c.nombre}`)).toEqual([
+        'EGRESO:Alimentación',
+        'EGRESO:Hogar',
+        'EGRESO:Otros egresos',
+        'EGRESO:Transporte',
+        'EGRESO:Árbol',
+        'EGRESO:Mascotas',
+        'EGRESO:Zapatos',
+        'INGRESO:Bonos',
+        'INGRESO:Otros ingresos',
+        'INGRESO:Sueldo',
+        'INGRESO:Ahorros',
+      ]);
+    });
+
     it('cada item trae id, nombre, tipo, esPredeterminada y movimientos, y nada interno', async () => {
       const { body } = await llamar('get', '/categorias?tipo=EGRESO');
 
@@ -236,6 +269,15 @@ describe('Categorías (integración: guard de sesión real y MongoDB simulado)',
       const creada = categorias.docs.at(-1) as Doc;
       expect(String(creada.usuarioId)).toBe(USUARIO_ID);
       expect(creada.esRespaldo).toBe(false);
+    });
+
+    it('CA-RF10-07 admite un nombre de exactamente 40 caracteres', async () => {
+      const nombre = 'x'.repeat(40);
+
+      const { status, body } = await llamar('post', '/categorias', { nombre, tipo: 'EGRESO' });
+
+      expect(status).toBe(201);
+      expect(body.nombre).toBe(nombre);
     });
 
     it('recorta los espacios del nombre', async () => {
@@ -439,6 +481,19 @@ describe('Categorías (integración: guard de sesión real y MongoDB simulado)',
 
       expect(status).toBe(400);
       expect(body.message).toEqual(['id debe ser un id de categoría válido']);
+    });
+
+    it('CA-RF12-06 sin categoría de respaldo del tipo responde 500, no elimina la categoría y no toca los movimientos', async () => {
+      const mascotas = categorias.sembrar('Mascotas', 'EGRESO', USUARIO_ID);
+      transacciones.docs.push({ usuarioId: USUARIO_ID, categoriaId: mascotas.id });
+      categorias.docs = categorias.docs.filter((c) => c.id !== otrosEgresos.id);
+
+      const { status, body } = await llamar('delete', `/categorias/${mascotas.id}`);
+
+      expect(status).toBe(500);
+      expect(body.message).toBe('No existe la categoría general de respaldo de EGRESO');
+      expect(categorias.docs.some((c) => c.id === mascotas.id)).toBe(true);
+      expect(transacciones.docs[0].categoriaId).toBe(mascotas.id);
     });
 
     it('si falla la reasignación no se elimina la categoría, para poder reintentar', async () => {

@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import mongoose from 'mongoose';
 import { TipoTransaccion } from '../transacciones/transaccion.enums.js';
 import { CategoriaSchema } from './categoria.schema.js';
@@ -69,6 +70,17 @@ describe('CategoriasSemilla', () => {
       expect(categoria.esPredeterminada).toBe(true);
     }
     expect(sembradas.filter((c) => c.esRespaldo)).toHaveLength(2);
+  });
+
+  it('CA-RF12-09 al sembrar deja constancia con cuántas categorías sembró, y si no siembra no dice nada', async () => {
+    const registro = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+
+    await crearEscenario(1).semilla.onApplicationBootstrap();
+    expect(registro).not.toHaveBeenCalled();
+
+    await crearEscenario(0).semilla.onApplicationBootstrap();
+    expect(registro).toHaveBeenCalledWith(`Categorías generales sembradas: ${CATEGORIAS_GENERALES_INICIALES.length}`);
+    registro.mockRestore();
   });
 
   it('no siembra nada si ya existe alguna general, así repetir el arranque no duplica y no pisa lo que cambie el administrador', async () => {
