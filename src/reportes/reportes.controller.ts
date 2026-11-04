@@ -10,6 +10,7 @@ import {
 } from '@nestjs/swagger';
 import { UsuarioActual } from '../auth/decoradores.js';
 import { ErrorInternoDto, ErrorSesionInvalidaDto, ErrorValidacionDto } from '../common/dto/error-respuesta.dto.js';
+import { ApiZonaHoraria, ZonaHoraria } from '../common/zona-horaria.js';
 import { CategoriasRespuestaDto } from './dto/categorias-respuesta.dto.js';
 import { PeriodoQueryDto } from './dto/periodo-query.dto.js';
 import { PeriodoRespuestaDto } from './dto/periodo-respuesta.dto.js';
@@ -22,13 +23,14 @@ export class ReportesController {
   constructor(@Inject(ReportesService) private readonly reportes: ReportesService) {}
 
   @Get('periodo')
+  @ApiZonaHoraria()
   @ApiOperation({
     summary: 'Resumen numérico de un periodo',
     description: `
 Devuelve los totales de dinero del usuario dueño de la sesión en un periodo (CU-07, RF-13, RF-14, RF-20). **Requiere sesión:** header \`Authorization: Bearer <accessToken>\`. Solo cuenta los movimientos propios.
 
 **Qué periodo consulta (todos los parámetros son opcionales)**
-- Sin parámetros: el **mes actual** (el día de hoy se toma en UTC).
+- Sin parámetros: el **mes actual**. El día de hoy se toma en la zona del header opcional \`X-Zona-Horaria\` (nombre IANA, por ejemplo \`America/Bogota\`); sin el header, en UTC. Esa zona no cambia nada si se envía \`mes\` o un rango, pero un nombre inválido responde \`400\` en todos los casos.
 - \`mes=YYYY-MM\`: ese mes completo, de su día 1 al último (febrero y años bisiestos incluidos).
 - \`desde=YYYY-MM-DD&hasta=YYYY-MM-DD\`: un rango con ambos extremos **incluidos**; puede cruzar meses y años y puede ser de un solo día. Se envían siempre los dos y \`desde\` no puede ser posterior a \`hasta\`.
 - \`mes\` no se combina con \`desde\` ni \`hasta\`: se elige un mes o un rango.
@@ -56,7 +58,7 @@ Devuelve los totales de dinero del usuario dueño de la sesión en un periodo (C
   @ApiBadRequestResponse({
     type: ErrorValidacionDto,
     description:
-      '`mes` con un formato distinto de YYYY-MM o con un mes fuera de 01 a 12; `desde` o `hasta` que no son YYYY-MM-DD o no existen en el calendario; `desde` posterior a `hasta`; solo uno de los dos extremos; `mes` junto con `desde` o `hasta`; o un parámetro desconocido. `message` es un arreglo con un texto por problema.',
+      '`mes` con un formato distinto de YYYY-MM o con un mes fuera de 01 a 12; `desde` o `hasta` que no son YYYY-MM-DD o no existen en el calendario; `desde` posterior a `hasta`; solo uno de los dos extremos; `mes` junto con `desde` o `hasta`; un parámetro desconocido; o un `X-Zona-Horaria` que no es un nombre de zona IANA válido. `message` es un arreglo con un texto por problema.',
   })
   @ApiUnauthorizedResponse({
     type: ErrorSesionInvalidaDto,
@@ -69,17 +71,19 @@ Devuelve los totales de dinero del usuario dueño de la sesión en un periodo (C
   obtenerPorPeriodo(
     @UsuarioActual() usuarioId: string,
     @Query() consulta: PeriodoQueryDto,
+    @ZonaHoraria() zona: string,
   ): Promise<PeriodoRespuestaDto> {
-    return this.reportes.obtenerPorPeriodo(usuarioId, consulta);
+    return this.reportes.obtenerPorPeriodo(usuarioId, consulta, zona);
   }
 
   @Get('categorias')
+  @ApiZonaHoraria()
   @ApiOperation({
     summary: 'Distribución de los gastos por categoría',
     description: `
 Devuelve en qué categorías se fue el gasto del usuario dueño de la sesión en un periodo, con el total y el porcentaje de cada una; sirve para la gráfica circular (CU-07, RF-18). **Requiere sesión:** header \`Authorization: Bearer <accessToken>\`. Solo cuenta los movimientos propios.
 
-**Qué periodo consulta:** los mismos parámetros, reglas y mensajes de error que \`GET /reportes/periodo\`. Sin parámetros, el **mes actual** (el día de hoy se toma en UTC); \`mes=YYYY-MM\` para un mes; o \`desde\` + \`hasta\` (\`YYYY-MM-DD\`, ambos incluidos y siempre juntos) para un rango. \`mes\` no se combina con \`desde\` ni \`hasta\`. La respuesta devuelve \`desde\` y \`hasta\`, el periodo efectivo.
+**Qué periodo consulta:** los mismos parámetros, reglas y mensajes de error que \`GET /reportes/periodo\`. Sin parámetros, el **mes actual** (el día de hoy se toma en la zona del header opcional \`X-Zona-Horaria\`, nombre IANA; sin el header, en UTC; un nombre inválido responde \`400\` aunque se envíe \`mes\` o un rango); \`mes=YYYY-MM\` para un mes; o \`desde\` + \`hasta\` (\`YYYY-MM-DD\`, ambos incluidos y siempre juntos) para un rango. \`mes\` no se combina con \`desde\` ni \`hasta\`. La respuesta devuelve \`desde\` y \`hasta\`, el periodo efectivo.
 
 **Qué cuenta (regla de flujo de caja, ADR-014)**
 - Solo el gasto propio: los egresos \`ORDINARIO\`. No cuentan los ingresos de ninguna clase, el dinero recibido, los pagos de tarjeta ni los abonos a deudas, para no contar dos veces lo que ya se gastó. Por eso \`total\` es igual a \`egresos\` de \`GET /reportes/periodo\`.
@@ -103,7 +107,7 @@ Devuelve en qué categorías se fue el gasto del usuario dueño de la sesión en
   @ApiBadRequestResponse({
     type: ErrorValidacionDto,
     description:
-      '`mes` con un formato distinto de YYYY-MM o con un mes fuera de 01 a 12; `desde` o `hasta` que no son YYYY-MM-DD o no existen en el calendario; `desde` posterior a `hasta`; solo uno de los dos extremos; `mes` junto con `desde` o `hasta`; o un parámetro desconocido. `message` es un arreglo con un texto por problema.',
+      '`mes` con un formato distinto de YYYY-MM o con un mes fuera de 01 a 12; `desde` o `hasta` que no son YYYY-MM-DD o no existen en el calendario; `desde` posterior a `hasta`; solo uno de los dos extremos; `mes` junto con `desde` o `hasta`; un parámetro desconocido; o un `X-Zona-Horaria` que no es un nombre de zona IANA válido. `message` es un arreglo con un texto por problema.',
   })
   @ApiUnauthorizedResponse({
     type: ErrorSesionInvalidaDto,
@@ -116,7 +120,8 @@ Devuelve en qué categorías se fue el gasto del usuario dueño de la sesión en
   obtenerPorCategoria(
     @UsuarioActual() usuarioId: string,
     @Query() consulta: PeriodoQueryDto,
+    @ZonaHoraria() zona: string,
   ): Promise<CategoriasRespuestaDto> {
-    return this.reportes.obtenerPorCategoria(usuarioId, consulta);
+    return this.reportes.obtenerPorCategoria(usuarioId, consulta, zona);
   }
 }
