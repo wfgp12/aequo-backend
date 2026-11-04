@@ -199,6 +199,31 @@ describe('POST /transacciones (integración: guard de sesión real y MongoDB sim
     });
   });
 
+  describe('bordes y métodos de pago (paquete 2.2.6)', () => {
+    it('CA-RF06-34 acepta una descripción de exactamente 200 caracteres y la devuelve completa', async () => {
+      const descripcion = 'x'.repeat(200);
+
+      const { status, body } = await crear(valido({ descripcion }));
+
+      expect(status).toBe(201);
+      expect(body.descripcion).toBe(descripcion);
+    });
+
+    it('CA-RF06-35 acepta exactamente el monto máximo', async () => {
+      const { status, body } = await crear(valido({ monto: 999_999_999_999 }));
+
+      expect(status).toBe(201);
+      expect(body.monto).toBe(999_999_999_999);
+    });
+
+    it.each(['EFECTIVO', 'DEBITO', 'TRANSFERENCIA'])('CA-RF07-01 acepta el método de pago %s', async (metodoPago) => {
+      const { status, body } = await crear(valido({ metodoPago }));
+
+      expect(status).toBe(201);
+      expect(body.metodoPago).toBe(metodoPago);
+    });
+  });
+
   describe('categoría del movimiento', () => {
     it.each([
       ['no existe', nuevoId().toString(), 'EGRESO'],

@@ -302,6 +302,44 @@ describe('GET /transacciones (integración: guard de sesión real y MongoDB simu
       expect(vistos).toEqual(esperado);
     });
 
+    it('CA-RF09-08 con un límite mayor que 2, el cursor sale de la última transacción de la página', async () => {
+      for (let i = 1; i <= 7; i++) transacciones.agregar(USUARIO_ID, { fecha: dia(`2026-10-${String(i).padStart(2, '0')}`) });
+      const esperado = [...transacciones.docs].reverse().map((d) => d.id);
+
+      const paginas: string[][] = [];
+      let cursor: string | null = null;
+      do {
+        const { body } = await listar(`?limite=3${cursor ? `&cursor=${cursor}` : ''}`);
+        paginas.push(ids(body.items));
+        cursor = body.siguienteCursor;
+      } while (cursor && paginas.length < 10);
+
+      expect(paginas.map((pagina) => pagina.length)).toEqual([3, 3, 1]);
+      expect(paginas.flat()).toEqual(esperado);
+    });
+
+    describe('un cursor se acepta solo si es exacto (CA-RF09-13)', () => {
+      const posicion = `${dia('2026-10-05').getTime()}_000000000000000000000001`;
+      const aCursor = (texto: string) => Buffer.from(texto).toString('base64url');
+
+      it('un cursor con la forma exacta se acepta', async () => {
+        const { status } = await listar(`?cursor=${aCursor(posicion)}`);
+
+        expect(status).toBe(200);
+      });
+
+      it.each([
+        ['texto antes del cursor', `basura-${posicion}`],
+        ['texto después del cursor', `${posicion}-basura`],
+        ['un id con más de 24 caracteres', `${posicion}0`],
+      ])('CA-RF09-13 responde 400 con %s', async (_caso, texto) => {
+        const { status, body } = await listar(`?cursor=${aCursor(texto)}`);
+
+        expect(status).toBe(400);
+        expect(body.message).toEqual(['cursor no es válido: usa el siguienteCursor de la página anterior']);
+      });
+    });
+
     it('si el total es múltiplo del límite, la última página ya viene con siguienteCursor null', async () => {
       for (let i = 1; i <= 4; i++) transacciones.agregar(USUARIO_ID, { fecha: dia(`2026-10-0${i}`) });
 
