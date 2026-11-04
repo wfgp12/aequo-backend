@@ -1,4 +1,5 @@
 {
+  "crossSessionInbound": "accept",
   "hooks": {
     "PreToolUse": [
       {
@@ -10,6 +11,48 @@
           }
         ]
       }
+    ]
+  },
+  "permissions": {
+    "additionalDirectories": ["../coordinacion"],
+    "allow": [
+      "Bash(npm test)",
+      "Bash(npm test *)",
+      "Bash(npm run test:cov)",
+      "Bash(npm run test:e2e)",
+      "Bash(npm run test:mutacion)",
+      "Bash(npm run lint)",
+      "Bash(npm run build)",
+      "Bash(npx vitest *)",
+      "Bash(npx stryker run *)",
+      "Bash(npx tsc *)",
+      "Bash(npx oxlint *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git ls-files *)",
+      "Bash(git rev-parse *)",
+      "Bash(git branch --merged *)",
+      "Bash(git branch -r --merged *)",
+      "Bash(git fetch *)"
+    ],
+    "ask": [
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(git merge *)",
+      "Bash(npm install *)",
+      "Bash(npm i *)",
+      "Bash(npm ci)",
+      "Bash(npm uninstall *)"
+    ],
+    "deny": [
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f)"
     ]
   }
 }
