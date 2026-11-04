@@ -1,6 +1,6 @@
 # Criterios de aceptación — 3 Reportes y visualización
 
-Estado: Borrador
+Estado: Aprobado (paquetes 3.1.1 y 3.1.2)
 
 ## Paquete 3.1.1 — Agregación por periodo (TDD)
 
@@ -233,3 +233,169 @@ Todos los casos usan `?mes=2026-10`.
 - **Dado** cualquier consulta válida
 - **Cuando** responde 200
 - **Entonces** el cuerpo tiene exactamente las propiedades `desde`, `hasta`, `ingresos`, `egresos`, `pagosTarjeta`, `abonosDeuda`, `dineroRecibido` y `balance`; las fechas son cadenas `YYYY-MM-DD` y los totales son números (el Adapter del frontend depende de esta forma)
+
+---
+
+## Paquete 3.1.2 — Agregación por categoría (TDD)
+
+Cubre RF-18 (la mitad "por categoría": distribución de los gastos en una gráfica circular) y reutiliza la selección de periodo de RF-13 y RF-14. Servicio previsto: `ReportesService` (nuevo método de agregación por categoría). Reglas de ADR-014 (CLAUDE.md §5: "Gasto por categoría") y RNF-11 (precisión completa, el redondeo es del frontend).
+
+### Contrato propuesto (a aprobar)
+
+La Especificación y el Documento de Diseño no fijan el endpoint, así que las pruebas se escribirán contra este contrato. Si lo cambias, cambian los criterios.
+
+- `GET /reportes/categorias`, protegido con la sesión.
+- Parámetros de consulta: los mismos que `GET /reportes/periodo` (`mes`, o el par `desde` + `hasta`, o ninguno = mes actual), con las mismas validaciones y los mismos mensajes de error.
+- Respuesta 200:
+  `{ desde, hasta, total, categorias: [{ categoriaId, nombre, total, porcentaje }] }`
+  - `desde` y `hasta`: el periodo efectivo, `YYYY-MM-DD`.
+  - `total`: el gasto propio del periodo, la suma de las transacciones `EGRESO` con `clasificacionFlujo` `ORDINARIO`.
+  - `categorias`: una entrada por cada categoría con gasto en el periodo (las que suman 0 no aparecen), ordenadas por `total` de mayor a menor y, en empate, por `nombre` de la A a la Z.
+  - Cada entrada: `categoriaId` (texto), `nombre` actual de la categoría, `total` de esa categoría y `porcentaje` = `total` de la categoría ÷ `total` × 100, con la precisión completa (sin redondear).
+  - Sin gastos en el periodo: `total` 0 y `categorias` vacío.
+- No cuentan: los ingresos de cualquier clase, los `PAGO_TARJETA` ni los `ABONO_DEUDA` (ADR-014: se excluyen para no contar dos veces lo que ya se gastó).
+- Se calcula al consultar, igual que el resumen del periodo.
+
+### Decisiones que necesito de ti antes de escribir las pruebas
+
+> Pendiente de decisión (1): **método de pago.** RF-18 pide la distribución "por categoría y por método de pago", pero la EDT titula este paquete solo "agregación por categoría". Propongo que la distribución por método de pago sea un paquete aparte (y que dependa del módulo de tarjetas, porque las compras con tarjeta son `TARJETA_CREDITO`). Estos criterios no lo cubren. Si prefieres que vaya en este paquete, lo agrego como un segundo endpoint o como un arreglo más en la misma respuesta.
+
+> Pendiente de decisión (2): **compras con tarjeta.** ADR-014 dice que las compras de `comprascredito` cuentan por su categoría en el mes de la compra. Esa colección llega con el módulo 5, así que por ahora este endpoint solo suma transacciones, y entonces `total` es igual al `egresos` del resumen del periodo (CA-RF18-08). Cuando exista el módulo de tarjetas se agregan los criterios de esa fuente (y CA-RF18-08 deja de cumplirse tal cual: el `total` incluirá también las compras con tarjeta). Dime si lo prefieres de otra forma.
+
+> Pendiente de decisión (3): **gasto con una categoría que ya no se encuentra.** Eliminar una categoría reasigna sus movimientos a "Otros" (RF-12), así que no debería ocurrir. Si ocurre (dato inconsistente), propongo no perder el gasto: aparece en una entrada con `categoriaId` `null` y `nombre` `Sin categoría`, así la suma de las entradas siempre es el `total`. La alternativa es omitirlo (y el `total` ya no cuadraría).
+
+> Pendiente de decisión (4): **solo gastos.** RF-18 habla de la distribución de los gastos. Los ingresos por categoría no se piden, y no los incluyo (YAGNI).
+
+> Pendiente de decisión (5): la zona horaria del "mes actual" sigue la decisión (4) del paquete 3.1.1 (hoy se toma en UTC).
+
+---
+
+## RF-13 y RF-14 — Periodo del reporte por categoría
+
+### CA-RF13-03 — Sin parámetros se usa el mes actual
+
+- **Dado** que hoy es el 15 de octubre de 2026 y el usuario tiene gastos del 1 al 31 de octubre y del mes anterior
+- **Cuando** consulta `GET /reportes/categorias` sin parámetros
+- **Entonces** responde 200 con `desde` `2026-10-01` y `hasta` `2026-10-31`, y solo cuentan los gastos de octubre
+
+### CA-RF14-16 — Un mes concreto, con sus bordes incluidos y los vecinos no
+
+- **Dado** gastos de $1.000 en la misma categoría el 31 de agosto, el 1 de septiembre, el 30 de septiembre y el 1 de octubre de 2026
+- **Cuando** consulta `?mes=2026-09`
+- **Entonces** responde con `desde` `2026-09-01` y `hasta` `2026-09-30`, `total` 2.000, y cuenta solo los del 1 y el 30 de septiembre
+
+### CA-RF14-17 — Un rango con `desde` y `hasta`, ambos incluidos
+
+- **Dado** gastos de $1.000 en la misma categoría el 9, el 10, el 15, el 20 y el 21 de octubre de 2026
+- **Cuando** consulta `?desde=2026-10-10&hasta=2026-10-20`
+- **Entonces** `total` es 3.000 y cuenta los del 10, 15 y 20; y con `desde` igual a `hasta` (`2026-10-15`) cuenta solo el del 15
+
+### CA-RF14-18 — Las mismas validaciones y los mismos mensajes que el resumen del periodo
+
+- **Dado** una consulta con `desde` posterior a `hasta`, un `mes` inválido (`2026-13`), un `desde` con un día que no existe (`2026-02-30`), solo `desde` o solo `hasta`, o `mes` junto con `desde` o `hasta`
+- **Cuando** se envía
+- **Entonces** responde 400 con el mismo mensaje que da `GET /reportes/periodo` para ese caso (CA-RF14-09 a CA-RF14-13), y no consulta la base
+
+### CA-RF14-19 — Sin sesión válida
+
+- **Dado** una consulta sin sesión o con una sesión inválida
+- **Cuando** se envía
+- **Entonces** responde 401
+
+---
+
+## RF-18 — Distribución de los gastos por categoría
+
+Todos los casos usan `?mes=2026-10`, salvo que se diga otra cosa.
+
+### CA-RF18-01 — Total y porcentaje por categoría
+
+- **Dado** gastos ordinarios de octubre de 2026 de $600.000 en Alimentación, $300.000 en Transporte y $100.000 en Hogar
+- **Cuando** consulta el reporte por categoría
+- **Entonces** responde 200 con `total` 1.000.000 y tres entradas: Alimentación con `total` 600.000 y `porcentaje` 60, Transporte con 300.000 y 30, y Hogar con 100.000 y 10; cada una con su `categoriaId` y su `nombre`
+
+### CA-RF18-02 — Varios gastos de la misma categoría se suman
+
+- **Dado** gastos ordinarios de $45.000, $80.000 y $1.254.700 en Alimentación, y uno de $20.000 en Salud
+- **Cuando** consulta el reporte
+- **Entonces** hay una sola entrada de Alimentación con `total` 1.379.700 y una de Salud con 20.000
+
+### CA-RF18-03 — Orden: de mayor a menor y, en empate, por nombre
+
+- **Dado** gastos de $100.000 en Salud y en Hogar, $500.000 en Transporte y $50.000 en Alimentación
+- **Cuando** consulta el reporte
+- **Entonces** las entradas salen en este orden: Transporte, Hogar, Salud, Alimentación
+
+### CA-RF18-04 — Una sola categoría es el 100 %
+
+- **Dado** gastos ordinarios solo en Transporte, por $80.000
+- **Cuando** consulta el reporte
+- **Entonces** hay una entrada con `total` 80.000 y `porcentaje` 100
+
+### CA-RF18-05 — Las categorías sin gasto en el periodo no aparecen
+
+- **Dado** un usuario con una categoría personal "Mascotas" y las generales, y gastos en octubre solo en Hogar; y en septiembre un gasto en Mascotas
+- **Cuando** consulta `?mes=2026-10`
+- **Entonces** `categorias` tiene únicamente la entrada de Hogar
+
+### CA-RF18-06 — Las categorías personalizadas y las generales cuentan igual
+
+- **Dado** gastos en la categoría general Alimentación y en la categoría personal "Mascotas" del usuario
+- **Cuando** consulta el reporte
+- **Entonces** ambas aparecen, cada una con su `categoriaId` y su `nombre`
+
+### CA-RF18-07 — Solo cuenta el gasto propio
+
+- **Dado** en octubre: un egreso ordinario de $50.000 en Hogar, un ingreso ordinario de $3.000.000, un `DINERO_RECIBIDO` (préstamo) de $1.000.000, un `PAGO_TARJETA` de $119.802,13 y un `ABONO_DEUDA` de $200.000
+- **Cuando** consulta el reporte
+- **Entonces** `total` es 50.000 y la única entrada es Hogar con 50.000 (los ingresos, el dinero recibido, el pago de tarjeta y el abono no cuentan: ADR-014)
+
+### CA-RF18-08 — El total coincide con los egresos del resumen y con la suma de las entradas
+
+- **Dado** gastos en varias categorías y los demás movimientos del caso anterior
+- **Cuando** consulta el reporte por categoría y el resumen `GET /reportes/periodo` del mismo periodo
+- **Entonces** `total` es igual a `egresos` del resumen y a la suma de los `total` de las entradas
+
+### CA-RF18-09 — Precisión completa, sin redondear
+
+- **Dado** gastos de $100,10 y $200,20 en Alimentación; y, en otro caso, gastos de $100.000 en cada una de tres categorías
+- **Cuando** consulta el reporte
+- **Entonces** `total` de Alimentación es 300,30 (con la precisión de la suma); y con las tres categorías iguales, cada `porcentaje` es 33,333… (sin redondear) y los tres suman 100 (RNF-11)
+
+### CA-RF18-10 — El nombre es el actual de la categoría
+
+- **Dado** un gasto en la categoría personal "Mascotas", y el reporte consultado
+- **Cuando** el usuario renombra la categoría a "Animales" y consulta de nuevo
+- **Entonces** la entrada se llama "Animales" y conserva el mismo `categoriaId`
+
+### CA-RF18-11 — Un gasto cuya categoría no se encuentra no se pierde
+
+- **Dado** un gasto ordinario de $30.000 cuyo `categoriaId` no corresponde a ninguna categoría, y otro de $70.000 en Hogar
+- **Cuando** consulta el reporte
+- **Entonces** `total` es 100.000 y hay una entrada con `categoriaId` `null`, `nombre` `Sin categoría` y `total` 30.000, además de la de Hogar
+
+> Pendiente de decisión: depende de la decisión (3) de arriba.
+
+### CA-RF18-12 — Un periodo sin gastos es un reporte vacío, no un error
+
+- **Dado** un usuario sin gastos en el periodo (con otros movimientos, o con ninguno), aunque tenga gastos en otros meses
+- **Cuando** consulta el reporte
+- **Entonces** responde 200 con `total` 0 y `categorias` `[]` (sin dividir entre cero)
+
+### CA-RF18-13 — Solo cuenta lo del usuario de la sesión
+
+- **Dado** gastos de otro usuario en el mismo periodo y categorías personales de ese otro usuario
+- **Cuando** el usuario consulta su reporte
+- **Entonces** `total` y las entradas no incluyen nada del otro usuario
+
+### CA-RF18-14 — Los cambios se reflejan al consultar
+
+- **Dado** un único gasto de $45.000 en Hogar en octubre, y el reporte consultado con Hogar en 45.000
+- **Cuando** el usuario, en este orden, crea un gasto de $5.000 en Salud, cambia el primero a la categoría Transporte y elimina el de Salud, y consulta después de cada paso
+- **Entonces** el reporte muestra: Hogar 45.000 y Salud 5.000; luego Transporte 45.000 y Salud 5.000; y al final solo Transporte 45.000, sin datos guardados que se queden viejos
+
+### CA-RF18-15 — Forma estable de la respuesta
+
+- **Dado** cualquier consulta válida
+- **Cuando** responde 200
+- **Entonces** el cuerpo tiene exactamente las propiedades `desde`, `hasta`, `total` y `categorias`; cada entrada tiene exactamente `categoriaId`, `nombre`, `total` y `porcentaje`; las fechas son cadenas `YYYY-MM-DD`, `categoriaId` es texto (o `null`) y los totales y porcentajes son números (el Adapter del frontend depende de esta forma)

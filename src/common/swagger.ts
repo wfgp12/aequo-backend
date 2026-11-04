@@ -46,7 +46,7 @@ export const construirConfigSwagger = () =>
     )
     .addTag(
       'reportes',
-      'Resúmenes calculados al consultar a partir de los movimientos del usuario autenticado: totales del periodo (mes actual por defecto, otro mes o un rango de fechas). Los totales siguen la regla de flujo de caja: el dinero recibido (préstamos y avances) no es ingreso propio y las compras con tarjeta afectan el balance cuando se paga la tarjeta. Requieren sesión (JWT).',
+      'Resúmenes calculados al consultar a partir de los movimientos del usuario autenticado: totales del periodo (mes actual por defecto, otro mes o un rango de fechas). Los totales siguen la regla de flujo de caja: el dinero recibido (préstamos y avances) no es ingreso propio y las compras con tarjeta afectan el balance cuando se paga la tarjeta. La distribución del gasto por categoría usa el mismo periodo y solo cuenta el gasto propio (egresos ordinarios), con porcentajes sin redondear. Requieren sesión (JWT).',
     )
     .addTag(
       'desarrollo',
