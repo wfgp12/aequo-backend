@@ -207,3 +207,13 @@ El tablero de Notion resume este paquete como «meta con monto objetivo y plazo�
 - **Dado** una meta con los demás campos válidos
 - **Cuando** `ahorroReal` es −25000
 - **Entonces** pasa la validación y conserva el valor (RF-23 lo define como la diferencia entre lo presupuestado y lo gastado, que da negativo cuando se gasta más de lo presupuestado; el acumulado debe poder restarlo)
+
+### Periodo inválido (agregado en refuerzo)
+
+#### CA-RF21-27 — El error de un periodo inválido muestra el valor que se envió
+
+> Agregado en refuerzo
+
+- **Dado** una meta con los demás campos válidos
+- **Cuando** `periodo` es el texto `noviembre` o `2026-13-45`
+- **Entonces** el error de `periodo` (CA-RF21-18) menciona el texto tal como se envió, no una fecha inválida ya transformada, para que el mensaje de error que ve el cliente le diga qué valor fue el que no se pudo interpretar

@@ -130,6 +130,12 @@ describe('Esquema de Meta de ahorro', () => {
       expect(camposConError(datosValidos({ periodo }))).toEqual(['periodo']);
     });
 
+    it.each(['noviembre', '2026-13-45'])('CA-RF21-27 el error de un periodo inválido conserva el valor enviado (%s)', (periodo) => {
+      const error = new MetaAhorroModelo(datosValidos({ periodo })).validateSync()?.errors.periodo;
+
+      expect(error?.message).toContain(`"${periodo}"`);
+    });
+
     it.each(['2026-11-01T00:00:00Z', '2026-02-01T00:00:00Z'])(
       'CA-RF21-19 conserva tal cual el primer día del mes a las 00:00 UTC (%s)',
       (periodo) => {
