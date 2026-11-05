@@ -3,6 +3,7 @@ import { ConditionalModule, ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
+import { AhorroModule } from './ahorro/ahorro.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { construirMongoUri } from './database/mongodb-uri.js';
 import { CategoriasModule } from './categorias/categorias.module.js';
@@ -32,6 +33,7 @@ import {
     CategoriasModule,
     TransaccionesModule,
     ReportesModule,
+    AhorroModule,
     ConditionalModule.registerWhen(DevSessionModule, devSessionHabilitada),
   ],
   controllers: [AppController],
