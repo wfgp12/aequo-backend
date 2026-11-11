@@ -50,6 +50,10 @@ export const construirConfigSwagger = () =>
       'Resúmenes calculados al consultar a partir de los movimientos del usuario autenticado: totales del periodo (mes actual por defecto, otro mes o un rango de fechas). Los totales siguen la regla de flujo de caja: el dinero recibido (préstamos y avances) no es ingreso propio y las compras con tarjeta afectan el balance cuando se paga la tarjeta. La distribución del gasto por categoría usa el mismo periodo y solo cuenta el gasto propio (egresos ordinarios), con porcentajes sin redondear. Requieren sesión (JWT).',
     )
     .addTag(
+      'ahorro',
+      'Metas de ahorro mensuales del usuario autenticado: una meta por usuario y mes, como porcentaje del ingreso propio (0 a 100) o monto fijo en pesos. `periodo` se envía como `YYYY-MM` (o una fecha real `YYYY-MM-DD`, de la que se toma el mes) y siempre se devuelve como `YYYY-MM`. `ahorroReal` es el ahorro efectivo del mes (puede ser negativo); una meta con `ahorroReal` distinto de 0 no se elimina (`409`). Requieren sesión (JWT).',
+    )
+    .addTag(
       'desarrollo',
       'Rutas que SOLO existen con NODE_ENV=development y DEV_SESSION_ENABLED=true. Nunca disponibles en producción.',
     )
