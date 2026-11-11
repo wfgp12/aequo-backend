@@ -601,3 +601,345 @@ La **meta** que devuelven todas las operaciones tiene exactamente estos campos (
 ### Documentación Swagger
 
 `src/common/swagger.spec.ts` descubre todos los controladores y fallará si alguna de las cinco rutas o de los DTO (de entrada y de salida) del paquete no tiene etiqueta, resumen, descripción detallada, respuestas de error (400, 401, 404, 409, 500 según apliquen) y `description` + `example` en cada propiedad; además, el `POST` que responde `201` debe documentar el header `Idempotency-Key`. No es una prueba de este paquete, pero su cumplimiento forma parte de darlo por terminado. Los criterios CA-RF21-28..76 fijan los códigos de error que deben documentarse.
+
+---
+
+## Paquete 4.3.1 — Implementar cálculo de progreso hacia meta (TDD) (RF-22, RF-23)
+
+Estado: Aprobado (2026-11-11)
+
+### Alcance
+
+Entra el **cálculo** del monto disponible del mes (RF-22), del porcentaje de avance hacia la meta del mes (entregable de la EDT: «cálculo de porcentaje de avance») y del ahorro real acumulado mes a mes (RF-23), con los datos que **ya existen** (transacciones y metas mensuales). No entran: el componente visual (4.3.2 y 4.3.3, frontend), las recomendaciones de ahorro (4.2.x), el presupuesto por categoría (módulo 7) ni las compras con tarjeta (módulo 5: la colección `comprascredito` aún no existe). La meta (RF-21) ya está cubierta por CA-RF21-01..76; aquí solo se lee.
+
+Nota sobre numeración: en la Especificación v2.0, RF-24 es «registrar tarjetas de crédito» (módulo 5), no recomendaciones. Las recomendaciones (4.2.1 y 4.2.2, `generarRecomendaciones`) no tienen un RF numerado en el documento; este paquete no las toca.
+
+### Fuentes
+
+- RF-22: «visualizar el monto disponible, descontando de sus ingresos los egresos registrados y la meta de ahorro definida». CU-11: «el sistema descuenta del **ingreso propio** los egresos y la meta de ahorro»; flujo 1a: si no hay meta en el periodo, «el sistema calcula el disponible sin meta y lo indica»; postcondición: el usuario sabe cuánto puede gastar sin afectar su meta.
+- RF-23: «visualizar el ahorro real acumulado mes a mes, calculado con base en la diferencia entre lo presupuestado y lo efectivamente gastado». CU-12: «el sistema suma el ahorro real de cada periodo anterior»; flujo 1a: sin periodos anteriores el acumulado es cero.
+- EDT 4.3.1: «pruebas unitarias del cálculo de porcentaje de avance»; criterio: «el cálculo refleja correctamente el avance según las transacciones asociadas». EDT 4.3.2: «el componente refleja el porcentaje de avance calculado por el backend».
+- ADR-014 y `CLAUDE.md` sección 5: el balance cuenta el dinero que entra o sale de verdad (ordinarios, pagos de tarjeta y abonos a deudas); el ingreso propio excluye `DINERO_RECIBIDO`; una compra con tarjeta no afecta el balance el día de la compra, lo afecta el pago; el acumulado histórico se **calcula** sumando `ahorroReal` mensual (no se guarda aparte).
+- Código existente que se reutiliza: `ReportesService.obtenerPorPeriodo` (`src/reportes/`) ya calcula `ingresos` (ingreso propio), `egresos`, `pagosTarjeta`, `abonosDeuda`, `dineroRecibido` y `balance` con esas reglas, y `resolverPeriodo` + `@ZonaHoraria()` ya resuelven el mes (`YYYY-MM`) y el «mes actual» según `X-Zona-Horaria`. Los criterios exigen que las cifras **coincidan** con las de `GET /reportes/periodo` para no duplicar ni contradecir reglas.
+
+### Decisiones aprobadas por el desarrollador (2026-11-11)
+
+> Decisión P1 aprobada — **alcance de RF-23 frente al presupuesto.** RF-23 define el ahorro real como «lo presupuestado menos lo gastado», y el presupuesto (RF-39 a RF-42) es del módulo 7, que no existe. **Se adopta:** en este paquete el ahorro real del acumulado es el `ahorroReal` **guardado** en cada meta mensual (hoy lo envía el cliente por `/ahorro/metas`, D4 de 4.1.2), y el acumulado los suma sin recalcularlos desde transacciones. El «ahorro del mes» que sí se calcula aquí es `ingreso propio − egresos del mes` (sin presupuesto, es lo que realmente quedó). Cuando exista el presupuesto, el módulo 7 definirá cómo se calcula `ahorroReal` y habrá que revisar D4 (que el cliente deje de enviarlo) y este criterio; hasta entonces, consultar el progreso no escribe nada en la meta.
+
+> Decisión P2 aprobada — **forma pública.** La EDT solo tiene 4.3.1 (cálculo) y 4.3.2/4.3.3 (frontend): ningún paquete posterior del backend expone el cálculo, y 4.3.2 necesita «el porcentaje de avance calculado por el backend». **Se adopta:** exponerlo en este paquete con dos `GET` (solo lectura, sin `@Idempotente()`): `GET /ahorro/progreso` (disponible y avance de un mes) y `GET /ahorro/acumulado` (acumulado mes a mes). Las pruebas se escriben contra la API (patrón de integración del repo, con el guard de sesión real) para no depender de la firma interna del servicio.
+
+> Decisión P3 aprobada — **qué «egresos» descuenta el disponible.** RF-22 dice «egresos registrados». **Se adopta:** flujo de caja (ADR-014), igual que el balance del mes: egresos ordinarios + pagos de tarjeta + abonos a deudas, por la fecha en que el dinero sale; una compra con tarjeta no descuenta el día de la compra, sino cuando se paga. Alternativa descartada: base de consumo (egresos ordinarios + compras con tarjeta por su mes de compra, sin pagos de tarjeta ni abonos). Tampoco se reserva dinero para pagos de tarjeta futuros ni cargos pendientes: eso es el «pendiente por pagar» de RF-41 (módulo 7).
+
+> Decisión P4 aprobada — **avance sin tope y con signo.** Sin RF que lo defina. **Se adopta:** `porcentajeAvance = ahorro del mes ÷ monto de la meta × 100`, sin redondear (RNF-11) y **sin tope**: pasa de 100 si la meta se excede y es negativo si el ahorro del mes es negativo; el cliente decide cómo dibujar la barra. Es `null` si no hay meta o si el monto de la meta es 0 (división por cero; igual que CU-25 2a, «no disponible»). El monto de la meta es `valorObjetivo` si es `MONTO_FIJO`, o `ingreso propio × valorObjetivo ÷ 100` si es `PORCENTAJE` (CU-10: el porcentaje es del ingreso propio).
+
+> Decisión P5 aprobada — **qué meses suma el acumulado.** CU-12 dice «cada periodo anterior». **Se adopta:** suma las metas de **todos** los meses del usuario, con un parámetro opcional `hasta=YYYY-MM` (incluido) para cortar; el mes actual cuenta si tiene meta. Un mes sin meta no aporta (no hay documento) y no aparece en la serie. Sin metas, el acumulado es 0.
+
+> Decisión P6 aprobada — **nombres de campos y rutas** del contrato de abajo (definidos por analogía con `/ahorro/metas` y `/reportes/periodo`); el frontend los consume en 4.3.2.
+
+### Contrato aprobado (lo consumirá el frontend en 4.3.2)
+
+Ambas rutas requieren `Authorization: Bearer <accessToken>` y solo ven los datos del usuario del JWT.
+
+**`GET /ahorro/progreso`** — query opcional `mes=YYYY-MM`; sin `mes`, el mes actual según el header opcional `X-Zona-Horaria` (misma regla que `GET /reportes/periodo`). No acepta `desde`/`hasta` ni otros parámetros. Responde `200`:
+
+```json
+{
+  "periodo": "2026-11",
+  "ingresoPropio": 3000000,
+  "egresos": 2700000,
+  "ahorroDelMes": 300000,
+  "meta": { "id": "66a0b3c4d5e6f70012ab34cd", "tipoMeta": "PORCENTAJE", "valorObjetivo": 20, "montoMeta": 600000 },
+  "disponible": -300000,
+  "porcentajeAvance": 50
+}
+```
+
+- `ingresoPropio`: ingresos ordinarios del mes (no incluye `DINERO_RECIBIDO`); igual al campo `ingresos` de `GET /reportes/periodo`.
+- `egresos`: egresos ordinarios + pagos de tarjeta + abonos a deudas del mes (P3).
+- `ahorroDelMes = ingresoPropio − egresos`: igual al `balance` de `GET /reportes/periodo`; puede ser negativo.
+- `meta`: la meta del mes (`id`, `tipoMeta`, `valorObjetivo` y `montoMeta` en pesos, P4) o `null` si el mes no tiene meta.
+- `disponible = ahorroDelMes − montoMeta` (sin meta, `= ahorroDelMes`): lo que queda para gastar sin afectar la meta; negativo si ya se gastó más de lo que permite la meta.
+- `porcentajeAvance`: ver P4; `null` sin meta o con `montoMeta` 0.
+- Todos los montos son números con la precisión completa (RNF-11), sin redondear.
+
+**`GET /ahorro/acumulado`** — query opcional `hasta=YYYY-MM` (P5). Responde `200`:
+
+```json
+{
+  "total": 170000,
+  "meses": [
+    { "periodo": "2026-08", "ahorroReal": 250000, "acumulado": 250000 },
+    { "periodo": "2026-09", "ahorroReal": -80000, "acumulado": 170000 }
+  ]
+}
+```
+
+`meses` va del más antiguo al más reciente, con una entrada por cada meta del usuario; `acumulado` es la suma corrida hasta ese mes (inclusive) y `total` es el `acumulado` del último mes (0 si no hay metas).
+
+### Mes base de los ejemplos
+
+Salvo que un criterio diga otra cosa, «el mes base» es `2026-11` del usuario A con estas transacciones (fechas dentro del mes):
+
+| Movimiento | Tipo | `clasificacionFlujo` | Monto |
+|---|---|---|---|
+| Salario | `INGRESO` | `ORDINARIO` | 2.800.000 |
+| Trabajo extra | `INGRESO` | `ORDINARIO` | 200.000 |
+| Préstamo recibido | `INGRESO` | `DINERO_RECIBIDO` | 500.000 |
+| Arriendo | `EGRESO` | `ORDINARIO` | 1.200.000 |
+| Mercado | `EGRESO` | `ORDINARIO` | 600.000 |
+| Pago de la tarjeta | `EGRESO` | `PAGO_TARJETA` | 700.000 |
+| Abono al préstamo | `EGRESO` | `ABONO_DEUDA` | 200.000 |
+
+Resultado sin meta: `ingresoPropio` 3.000.000 (el préstamo no cuenta), `egresos` 2.700.000 (1.200.000 + 600.000 + 700.000 + 200.000), `ahorroDelMes` 300.000.
+
+## RF-22 — Monto disponible y avance hacia la meta del mes
+
+### Cálculo con meta
+
+#### CA-RF22-01 — Meta de porcentaje: disponible y avance
+
+- **Dado** el mes base y una meta `PORCENTAJE` de 20 para `2026-11`
+- **Cuando** el usuario consulta `GET /ahorro/progreso?mes=2026-11`
+- **Entonces** responde `200` con `periodo` `"2026-11"`, `ingresoPropio` 3.000.000, `egresos` 2.700.000, `ahorroDelMes` 300.000, `meta.montoMeta` 600.000 (20 % de 3.000.000), `disponible` −300.000 (300.000 − 600.000) y `porcentajeAvance` 50 (300.000 ÷ 600.000 × 100); `meta` trae además `id`, `tipoMeta` `PORCENTAJE` y `valorObjetivo` 20
+
+#### CA-RF22-02 — Meta de monto fijo excedida
+
+- **Dado** el mes base y una meta `MONTO_FIJO` de 200.000 para `2026-11`
+- **Cuando** consulta el progreso de `2026-11`
+- **Entonces** `meta.montoMeta` es 200.000, `disponible` 100.000 (300.000 − 200.000) y `porcentajeAvance` 150 (300.000 ÷ 200.000 × 100: la meta se excedió y el avance pasa de 100, P4)
+
+#### CA-RF22-03 — Meta cumplida exactamente
+
+- **Dado** el mes base y una meta `MONTO_FIJO` de 300.000
+- **Cuando** consulta el progreso de `2026-11`
+- **Entonces** `disponible` es 0 y `porcentajeAvance` es 100
+
+#### CA-RF22-04 — Meta de porcentaje excedida
+
+- **Dado** los mismos ingresos del mes base pero con egresos solo de 2.000.000 (arriendo 1.200.000 y mercado 800.000, sin pago de tarjeta ni abono) y una meta `PORCENTAJE` de 20
+- **Cuando** consulta el progreso de `2026-11`
+- **Entonces** `ahorroDelMes` es 1.000.000, `montoMeta` 600.000, `disponible` 400.000 y `porcentajeAvance` 166,6667 (1.000.000 ÷ 600.000 × 100, sin redondear)
+
+### Sin meta, sin ingreso y valores extremos
+
+#### CA-RF22-05 — Mes sin meta: se calcula el disponible sin meta y se indica
+
+- **Dado** el mes base y ninguna meta para `2026-11`
+- **Cuando** consulta el progreso de `2026-11`
+- **Entonces** responde `200` (no 404) con `meta` `null`, `porcentajeAvance` `null`, `ingresoPropio` 3.000.000, `egresos` 2.700.000, `ahorroDelMes` 300.000 y `disponible` 300.000 (CU-11, flujo 1a)
+
+#### CA-RF22-06 — La meta de otro mes no se usa
+
+- **Dado** el mes base y una meta solo para `2026-12`
+- **Cuando** consulta el progreso de `2026-11`
+- **Entonces** `meta` es `null` y `disponible` es 300.000; al consultar `2026-12` la meta aparece (con `montoMeta` calculado sobre el ingreso propio de diciembre)
+
+#### CA-RF22-07 — Mes sin movimientos, meta de porcentaje: división por cero
+
+- **Dado** una meta `PORCENTAJE` de 20 para `2026-11` y ninguna transacción ese mes
+- **Cuando** consulta el progreso de `2026-11`
+- **Entonces** `ingresoPropio`, `egresos` y `ahorroDelMes` son 0, `montoMeta` 0, `disponible` 0 y `porcentajeAvance` `null` (no `NaN`, no `Infinity`, no error)
+
+#### CA-RF22-08 — Mes sin movimientos, meta de monto fijo
+
+- **Dado** una meta `MONTO_FIJO` de 300.000 para `2026-11` y ninguna transacción ese mes
+- **Cuando** consulta el progreso de `2026-11`
+- **Entonces** `ahorroDelMes` es 0, `disponible` −300.000 y `porcentajeAvance` 0
+
+#### CA-RF22-09 — Mes sin movimientos y sin meta (también un mes futuro)
+
+- **Dado** que el usuario no tiene transacciones ni meta para `2026-11` ni para `2031-05`
+- **Cuando** consulta el progreso de cada uno
+- **Entonces** ambos responden `200` con `ingresoPropio`, `egresos`, `ahorroDelMes` y `disponible` en 0, `meta` `null` y `porcentajeAvance` `null`
+
+#### CA-RF22-10 — Gastos sin ingreso propio y meta de porcentaje
+
+- **Dado** una meta `PORCENTAJE` de 20 para `2026-11` y, ese mes, solo un egreso ordinario de 100.000
+- **Cuando** consulta el progreso de `2026-11`
+- **Entonces** `ingresoPropio` es 0, `montoMeta` 0, `ahorroDelMes` −100.000, `disponible` −100.000 y `porcentajeAvance` `null`
+
+#### CA-RF22-11 — Ahorro del mes negativo
+
+- **Dado** un ingreso ordinario de 1.000.000, egresos ordinarios de 1.250.000 y una meta `PORCENTAJE` de 20 para `2026-11`
+- **Cuando** consulta el progreso de `2026-11`
+- **Entonces** `ahorroDelMes` es −250.000, `montoMeta` 200.000, `disponible` −450.000 y `porcentajeAvance` −125 (negativo, sin tope: P4)
+
+#### CA-RF22-12 — Monto fijo mayor que el ingreso propio
+
+- **Dado** un ingreso ordinario de 1.000.000, sin egresos, y una meta `MONTO_FIJO` de 1.500.000 (el modelo la acepta: decisión 5 de 4.1.1)
+- **Cuando** consulta el progreso de `2026-11`
+- **Entonces** `disponible` es −500.000 y `porcentajeAvance` 66,6667 (1.000.000 ÷ 1.500.000 × 100); responde `200`, no un error
+
+#### CA-RF22-13 — Sin redondeo: la precisión completa llega al cliente (RNF-11)
+
+- **Dado** un ingreso ordinario de 1.254.700, un pago de tarjeta de 119.802,13 (la cuota de referencia: $1.254.700 a 12 cuotas con E.A. 29,21 %) y una meta `PORCENTAJE` de 12,5
+- **Cuando** consulta el progreso de `2026-11`
+- **Entonces** `egresos` es 119.802,13, `ahorroDelMes` 1.134.897,87, `montoMeta` 156.837,5, `disponible` 978.060,37 y `porcentajeAvance` 723,6138 (con `toBeCloseTo`; el backend no redondea al peso)
+
+### Reglas de flujo de caja (ADR-014)
+
+#### CA-RF22-14 — El dinero recibido no es ingreso propio
+
+- **Dado** el mes base (incluye un préstamo recibido de 500.000 como `DINERO_RECIBIDO`) y una meta `PORCENTAJE` de 20
+- **Cuando** consulta el progreso de `2026-11`
+- **Entonces** `ingresoPropio` es 3.000.000 (no 3.500.000) y `montoMeta` 600.000 (20 % del ingreso propio, no del dinero recibido); en un mes cuya única transacción es un préstamo recibido de 500.000, `ingresoPropio` es 0 y `ahorroDelMes` 0
+
+#### CA-RF22-15 — Los pagos de tarjeta y los abonos a deudas son salidas de dinero del mes
+
+- **Dado** un ingreso ordinario de 1.000.000 y, el mismo mes, un `PAGO_TARJETA` de 119.802,13 y un `ABONO_DEUDA` de 80.000
+- **Cuando** consulta el progreso sin meta
+- **Entonces** `egresos` es 199.802,13, `ahorroDelMes` 800.197,87 y `disponible` 800.197,87 (cuentan el día en que se pagan, ADR-014)
+
+> Nota: la otra mitad de la regla (una **compra** con tarjeta no descuenta el día de la compra, solo su pago) no se puede probar todavía porque las compras con tarjeta (`comprascredito`) son del módulo 5; en este paquete se cumple porque solo se leen transacciones. Se agregará un criterio cuando exista esa colección (ver P3).
+
+#### CA-RF22-16 — Las cifras coinciden con `GET /reportes/periodo`
+
+- **Dado** el mes base
+- **Cuando** el usuario consulta `GET /ahorro/progreso?mes=2026-11` y `GET /reportes/periodo?mes=2026-11`
+- **Entonces** `ingresoPropio` es igual a `ingresos`, `ahorroDelMes` es igual a `balance` y `egresos` es igual a `egresos + pagosTarjeta + abonosDeuda` del reporte (una sola regla de flujo de caja, sin duplicarla)
+
+### Periodo consultado
+
+#### CA-RF22-17 — Solo cuentan las transacciones del mes pedido
+
+- **Dado** un ingreso ordinario de 1.000.000 el 31 de octubre, uno de 2.000.000 el 1 de noviembre, un egreso ordinario de 300.000 el 30 de noviembre y otro de 900.000 el 1 de diciembre de 2026
+- **Cuando** consulta el progreso de `2026-11`
+- **Entonces** `ingresoPropio` es 2.000.000, `egresos` 300.000 y `ahorroDelMes` 1.700.000 (los extremos del mes, 1 y 30, incluidos; los días vecinos fuera)
+
+#### CA-RF22-18 — Febrero bisiesto
+
+- **Dado** un ingreso ordinario de 500.000 el 29 de febrero de 2028 y otro de 700.000 el 1 de marzo de 2028
+- **Cuando** consulta el progreso de `2028-02`
+- **Entonces** `periodo` es `"2028-02"` e `ingresoPropio` 500.000
+
+#### CA-RF22-19 — Sin `mes`, el mes actual según la zona horaria del usuario
+
+- **Dado** que en UTC es el 1 de diciembre de 2026 a las 03:00 (en Bogotá todavía es el 30 de noviembre, 10:00 p. m.), una meta `MONTO_FIJO` de 300.000 para `2026-11` y otra de 100.000 para `2026-12`
+- **Cuando** consulta `GET /ahorro/progreso` con `X-Zona-Horaria: America/Bogota`, y luego sin el header
+- **Entonces** con el header `periodo` es `"2026-11"` y `meta.montoMeta` 300.000; sin el header (UTC) `periodo` es `"2026-12"` y `meta.montoMeta` 100.000; con `mes=2026-12` explícito y el header de Bogotá, `periodo` es `"2026-12"` (la zona solo decide el mes actual)
+
+#### CA-RF22-20 — Parámetros inválidos
+
+- **Dado** un usuario con sesión
+- **Cuando** consulta `GET /ahorro/progreso` con `mes=2026-13`, `mes=noviembre`, `mes=2026-1`, con `desde=2026-11-01&hasta=2026-11-30`, con un parámetro desconocido, o con `X-Zona-Horaria: No/Existe`
+- **Entonces** responde `400` con `message` (arreglo) y no calcula nada
+
+### Datos de otros usuarios y consistencia
+
+#### CA-RF22-21 — Los datos de otro usuario nunca cuentan
+
+- **Dado** el mes base del usuario A con una meta `PORCENTAJE` de 20, y el usuario B con, en el mismo mes, un ingreso ordinario de 9.000.000, un egreso de 4.000.000 y una meta `MONTO_FIJO` de 1.000.000
+- **Cuando** A consulta el progreso de `2026-11`
+- **Entonces** el resultado es el de CA-RF22-01 (nada de B) y `meta.id` es el de la meta de A; un usuario C sin datos obtiene todo en 0 y `meta` `null`
+
+#### CA-RF22-22 — El cálculo refleja de inmediato los cambios
+
+- **Dado** el mes base con una meta `PORCENTAJE` de 20 (disponible −300.000)
+- **Cuando** el usuario ajusta la meta a 25 con `PATCH /ahorro/metas/:id`, y luego registra un ingreso ordinario de 500.000
+- **Entonces** el progreso pasa a `montoMeta` 750.000 (25 % de 3.000.000), y luego a `ingresoPropio` 3.500.000, `ahorroDelMes` 800.000, `montoMeta` 875.000, `disponible` −75.000 y `porcentajeAvance` 91,4286 (se calcula al consultar; no hay valores guardados que se queden desactualizados)
+
+#### CA-RF22-23 — Consultar el progreso no modifica nada
+
+- **Dado** el mes base con una meta cuyo `ahorroReal` es 150.000
+- **Cuando** consulta el progreso de `2026-11` varias veces
+- **Entonces** la meta guardada conserva `ahorroReal` 150.000 y su `actualizadaEn` no cambia, y no se crea ningún documento (P1: el progreso es una lectura)
+
+### Sesión y contrato
+
+#### CA-RF22-24 — Sin sesión válida responde 401
+
+- **Dado** un usuario sin sesión, con un token inválido o con uno vencido
+- **Cuando** consulta `GET /ahorro/progreso`
+- **Entonces** responde `401` sin datos
+
+#### CA-RF22-25 — La respuesta tiene exactamente los campos del contrato
+
+- **Dado** una consulta exitosa con meta, y otra sin meta
+- **Cuando** se inspecciona el cuerpo
+- **Entonces** tiene exactamente `periodo`, `ingresoPropio`, `egresos`, `ahorroDelMes`, `meta`, `disponible` y `porcentajeAvance` (con meta: `meta` tiene exactamente `id`, `tipoMeta`, `valorObjetivo` y `montoMeta`; sin meta es `null`); todos los montos son números (no textos) y no aparecen `usuarioId`, `_id` ni `__v`
+
+## RF-23 — Ahorro real acumulado mes a mes
+
+> Alcance según P1: el acumulado suma el `ahorroReal` guardado en cada meta mensual. Cuando exista el presupuesto (módulo 7) y el sistema calcule ese valor como «presupuestado − gastado», estos criterios se revisan.
+
+#### CA-RF23-01 — Acumulado de varios meses, mes a mes
+
+- **Dado** metas del usuario con `ahorroReal` 250.000 en `2026-08`, −80.000 en `2026-09`, sin indicarlo (0) en `2026-10` y 150.000 en `2026-11`
+- **Cuando** consulta `GET /ahorro/acumulado`
+- **Entonces** responde `200` con `total` 320.000 y `meses` de exactamente cuatro entradas, del más antiguo al más reciente: `{ 2026-08, ahorroReal 250.000, acumulado 250.000 }`, `{ 2026-09, −80.000, 170.000 }`, `{ 2026-10, 0, 170.000 }`, `{ 2026-11, 150.000, 320.000 }`
+
+#### CA-RF23-02 — Sin metas, el acumulado es cero
+
+- **Dado** un usuario sin metas
+- **Cuando** consulta `GET /ahorro/acumulado`
+- **Entonces** responde `200` con `total` 0 y `meses` `[]` (no 404; CU-12, flujo 1a)
+
+#### CA-RF23-03 — Cortar con `hasta`, extremo incluido
+
+- **Dado** las metas de CA-RF23-01
+- **Cuando** consulta con `hasta=2026-09`, luego con `hasta=2026-11`, y luego con `hasta=2026-07`
+- **Entonces** responde `total` 170.000 con dos meses (`2026-08` y `2026-09`); `total` 320.000 con los cuatro; y `total` 0 con `meses` `[]`
+
+#### CA-RF23-04 — El ahorro negativo resta
+
+- **Dado** metas con `ahorroReal` −80.000 en `2026-09` y −20.000 en `2026-10`, y nada más
+- **Cuando** consulta el acumulado
+- **Entonces** `total` es −100.000, con `acumulado` −80.000 y −100.000 en cada mes
+
+#### CA-RF23-05 — Los meses sin meta no aparecen y no aportan
+
+- **Dado** metas con `ahorroReal` 100.000 en `2026-08` y 50.000 en `2026-10`, sin meta en `2026-09`
+- **Cuando** consulta el acumulado
+- **Entonces** `meses` tiene solo `2026-08` y `2026-10`, con `acumulado` 100.000 y 150.000
+
+#### CA-RF23-06 — El orden no depende de cuándo se crearon las metas
+
+- **Dado** metas creadas en el orden `2026-11`, `2026-08`, `2026-10`
+- **Cuando** consulta el acumulado
+- **Entonces** `meses` va siempre de `2026-08` a `2026-11` (ascendente) y cada `acumulado` suma solo los meses hasta ese punto
+
+#### CA-RF23-07 — Sin redondeo (RNF-11)
+
+- **Dado** metas con `ahorroReal` 100.000,5 en `2026-09` y 50.000,25 en `2026-10`
+- **Cuando** consulta el acumulado
+- **Entonces** `total` es 150.000,75 y los `acumulado` son 100.000,5 y 150.000,75
+
+#### CA-RF23-08 — Solo cuentan las metas del usuario
+
+- **Dado** el usuario A con las metas de CA-RF23-01 y el usuario B con una meta de `ahorroReal` 9.000.000 en `2026-10`
+- **Cuando** A consulta el acumulado
+- **Entonces** `total` es 320.000 y `2026-10` vale 0; B ve solo su meta con `total` 9.000.000
+
+#### CA-RF23-09 — El acumulado refleja las ediciones de las metas
+
+- **Dado** las metas de CA-RF23-01
+- **Cuando** el usuario edita `2026-09` con `{ "ahorroReal": 20000 }`, y luego elimina la meta de `2026-10` (con `ahorroReal` 0, D8)
+- **Entonces** el acumulado pasa a `total` 420.000 con tres meses (`2026-08` 250.000, `2026-09` 270.000, `2026-11` 420.000)
+
+#### CA-RF23-10 — El acumulado no se recalcula desde las transacciones
+
+- **Dado** el mes base en `2026-11` (con `ahorroDelMes` 300.000) y una meta de `2026-11` con `ahorroReal` 0
+- **Cuando** consulta el acumulado
+- **Entonces** `total` es 0 y la meta conserva `ahorroReal` 0 (P1: hasta que el presupuesto exista, el `ahorroReal` es el que hay guardado; el ahorro del mes calculado se ve en `GET /ahorro/progreso`)
+
+#### CA-RF23-11 — Parámetros inválidos
+
+- **Dado** un usuario con sesión
+- **Cuando** consulta `GET /ahorro/acumulado` con `hasta=2026-13`, `hasta=noviembre`, `hasta=2026-11-30`, o un parámetro desconocido como `desde=2026-01`
+- **Entonces** responde `400` con `message` (arreglo)
+
+#### CA-RF23-12 — Sin sesión válida responde 401
+
+- **Dado** un usuario sin sesión, con un token inválido o con uno vencido
+- **Cuando** consulta `GET /ahorro/acumulado`
+- **Entonces** responde `401` sin datos
+
+#### CA-RF23-13 — La respuesta tiene exactamente los campos del contrato
+
+- **Dado** una consulta exitosa con metas
+- **Cuando** se inspecciona el cuerpo
+- **Entonces** tiene exactamente `total` y `meses`; cada elemento de `meses` tiene exactamente `periodo` (`YYYY-MM`), `ahorroReal` y `acumulado`, y los montos son números
+
+### Documentación Swagger
+
+`src/common/swagger.spec.ts` fallará si alguna de las dos rutas nuevas o de sus DTO de respuesta no tiene etiqueta, resumen, descripción detallada, respuestas de error (400, 401, 500) y `description` + `example` en cada propiedad; `GET /ahorro/progreso` debe documentar además el header `X-Zona-Horaria`. No es una prueba de este paquete, pero su cumplimiento forma parte de darlo por terminado.
