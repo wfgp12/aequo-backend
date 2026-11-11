@@ -51,7 +51,7 @@ export const construirConfigSwagger = () =>
     )
     .addTag(
       'ahorro',
-      'Metas de ahorro mensuales del usuario autenticado: una meta por usuario y mes, como porcentaje del ingreso propio (0 a 100) o monto fijo en pesos. `periodo` se envía como `YYYY-MM` (o una fecha real `YYYY-MM-DD`, de la que se toma el mes) y siempre se devuelve como `YYYY-MM`. `ahorroReal` es el ahorro efectivo del mes (puede ser negativo); una meta con `ahorroReal` distinto de 0 no se elimina (`409`). Requieren sesión (JWT).',
+      'Metas de ahorro mensuales del usuario autenticado: una meta por usuario y mes, como porcentaje del ingreso propio (0 a 100) o monto fijo en pesos. `periodo` se envía como `YYYY-MM` (o una fecha real `YYYY-MM-DD`, de la que se toma el mes) y siempre se devuelve como `YYYY-MM`. `ahorroReal` es el ahorro efectivo del mes (puede ser negativo); una meta con `ahorroReal` distinto de 0 no se elimina (`409`). `GET /ahorro/progreso` calcula el mes: `ahorroDelMes` = ingreso propio − egresos (egresos ordinarios + pagos de tarjeta + abonos), `disponible` = ingreso propio − egresos − monto de la meta y `porcentajeAvance` = ahorro del mes / monto de la meta × 100, sin tope y sin redondear (`null` sin meta o con monto 0). `GET /ahorro/acumulado` suma el `ahorroReal` guardado en cada meta (no lo recalcula desde las transacciones). Requieren sesión (JWT).',
     )
     .addTag(
       'desarrollo',
