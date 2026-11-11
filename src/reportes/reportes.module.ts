@@ -11,5 +11,6 @@ import { ReportesService } from './reportes.service.js';
   imports: [CategoriasModule, MongooseModule.forFeature([{ name: Transaccion.name, schema: TransaccionSchema }])],
   controllers: [ReportesController],
   providers: [ReportesService],
+  exports: [ReportesService],
 })
 export class ReportesModule {}

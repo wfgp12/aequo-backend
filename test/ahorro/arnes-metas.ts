@@ -9,9 +9,12 @@ import { MetaAhorro, MetaAhorroSchema } from '../../src/ahorro/meta-ahorro.schem
 import { AuthModule } from '../../src/auth/auth.module.js';
 import { FIREBASE_AUTH } from '../../src/auth/firebase-auth.provider.js';
 import { TokenService } from '../../src/auth/token.service.js';
+import { Categoria } from '../../src/categorias/categoria.schema.js';
 import { crearValidationPipe } from '../../src/common/validation-pipe.js';
 import { Idempotencia } from '../../src/idempotencia/idempotencia.schema.js';
+import { Transaccion } from '../../src/transacciones/transaccion.schema.js';
 import { Usuario } from '../../src/usuarios/usuario.schema.js';
+import { CategoriasEnMemoria, TransaccionesEnMemoria } from './colecciones-memoria.js';
 
 /**
  * Arnés de las pruebas de integración del CRUD de metas de ahorro (paquete 4.1.2): la aplicación real de Nest con el
@@ -463,6 +466,11 @@ export function usarEntorno(): Entorno {
       .useValue(metas)
       .overrideProvider(getModelToken(Idempotencia.name))
       .useValue(claves)
+      // El progreso (4.3.1) lee transacciones: el módulo de ahorro importa el de reportes, que registra estos dos modelos.
+      .overrideProvider(getModelToken(Transaccion.name))
+      .useValue(new TransaccionesEnMemoria())
+      .overrideProvider(getModelToken(Categoria.name))
+      .useValue(new CategoriasEnMemoria())
       .overrideProvider(FIREBASE_AUTH)
       .useValue({})
       .compile();
