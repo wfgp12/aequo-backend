@@ -468,7 +468,9 @@ export function usarEntorno(): Entorno {
       .compile();
     const app = modulo.createNestApplication({ logger: false });
     app.useGlobalPipes(crearValidationPipe());
-    await app.init();
+    // El servidor escucha una sola vez, en un puerto libre. Si no, supertest levanta uno por petición y el primero que
+    // termina lo cierra: con peticiones simultáneas, las demás se cortan (ECONNRESET en Linux; en Windows no se nota).
+    await app.listen(0);
 
     const tokens = app.get(TokenService);
     const token = tokens.generar(USUARIO_ID);

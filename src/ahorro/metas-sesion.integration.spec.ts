@@ -43,15 +43,16 @@ describe('Metas de ahorro: sesión y datos del usuario (integración)', () => {
       const token = obtenerToken();
       const nueva = { tipoMeta: 'PORCENTAJE', valorObjetivo: 30, periodo: '2026-12' };
 
-      const respuestas = await Promise.all([
-        entorno.crear(nueva, { token }),
-        entorno.listar('', token),
-        entorno.obtener(id, token),
-        entorno.editar(id, { valorObjetivo: 25 }, token),
-        entorno.eliminar(id, token),
-      ]);
-
-      for (const respuesta of respuestas) {
+      // En serie: la prueba verifica una ruta tras otra, no la concurrencia.
+      const rutas = [
+        () => entorno.crear(nueva, { token }),
+        () => entorno.listar('', token),
+        () => entorno.obtener(id, token),
+        () => entorno.editar(id, { valorObjetivo: 25 }, token),
+        () => entorno.eliminar(id, token),
+      ];
+      for (const enviar of rutas) {
+        const respuesta = await enviar();
         expect(respuesta.status).toBe(401);
         expect(respuesta.body).toEqual(ERROR_401);
       }
