@@ -81,7 +81,7 @@ export class ReportesService {
   async obtenerEvolucion(usuarioId: string, { desde, hasta }: EvolucionQueryDto): Promise<EvolucionRespuestaDto> {
     if (desde && hasta) validarRangoDeMeses(desde, hasta);
     const balances = await this.balancesPorMes(usuarioId);
-    const meses = [...balances.keys()].sort();
+    const meses = [...balances.keys()].sort((a, b) => a.localeCompare(b));
     const inicio = desde ?? meses[0];
     const fin = hasta ?? meses.at(-1);
 
