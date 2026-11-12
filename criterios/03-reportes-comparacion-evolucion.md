@@ -1,6 +1,6 @@
 # Criterios de aceptación — 3 Reportes: comparación entre periodos y evolución
 
-Estado: Aprobado (2026-11-11). La implementación y las pruebas van en dos paquetes: 3.1.3 (evolución, RF-19) primero y 3.1.4 (comparación, RF-15 y RF-16) después.
+Estado: Aprobado (2026-11-11). La implementación y las pruebas van en dos paquetes: el 3.1.3 (evolución, RF-19) quedó mezclado (PR #40) y este es el 3.1.4 (comparación, RF-15 y RF-16).
 
 Cubre RF-15 (comparar entre todos los periodos con movimientos), RF-16 (elegir el tipo de dato de la comparación) y RF-19 (evolución del balance mes a mes). Servicio previsto: `ReportesService.compararPeriodos(tipo)` y `ReportesService.obtenerEvolucion(rango)` (CLAUDE.md §4). Reglas de ADR-014 y RNF-11 (precisión completa; el redondeo es del frontend). Lo consumirán 3.2.4 (gráfica de evolución) y 3.3.1 (dashboard con comparaciones).
 

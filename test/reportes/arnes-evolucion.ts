@@ -51,6 +51,12 @@ export interface EntornoEvolucion {
   /** Categoría general de egresos y de ingresos, para crear movimientos por la API. */
   categoriaEgreso: Doc;
   categoriaIngreso: Doc;
+  /** Categorías generales de egresos que usan los «datos base». */
+  hogar: Doc;
+  alimentacion: Doc;
+  transporte: Doc;
+  /** Agrega una categoría (general si no se da `usuarioId`) y la devuelve. */
+  categoria(nombre: string, tipo?: string, usuarioId?: string | null): Doc;
   /** Token del usuario A. Se vuelve a emitir con `hoyEs`. */
   token: string;
   /** Token del usuario B. */
@@ -59,21 +65,28 @@ export interface EntornoEvolucion {
   evolucion(consulta?: string, opciones?: OpcionesDePeticion): request.Test;
   /** `GET /reportes/periodo` con la query opcional. */
   periodo(consulta?: string, opciones?: OpcionesDePeticion): request.Test;
+  /** `GET /reportes/comparacion` con la query opcional (`'tipo=balance&desde=2026-09'`). */
+  comparacion(consulta?: string, opciones?: OpcionesDePeticion): request.Test;
+  /** `GET /reportes/categorias` con la query opcional (`'mes=2026-09'`). */
+  reporteCategorias(consulta?: string, opciones?: OpcionesDePeticion): request.Test;
   /** `POST /transacciones` (sin Idempotency-Key). */
   crearPorApi(cuerpo: unknown): request.Test;
   /** `PATCH /transacciones/:id`. */
   editarPorApi(id: string, cuerpo: unknown): request.Test;
+  /** `DELETE /transacciones/:id`. */
+  eliminarPorApi(id: string): request.Test;
   /** Fija "hoy" (solo `Date`) y vuelve a emitir las sesiones para que sean coherentes con el reloj simulado. */
   hoyEs(iso: string): void;
   ingreso(fecha: string, monto: number, usuarioId?: string): Doc;
-  egreso(fecha: string, monto: number, usuarioId?: string): Doc;
+  egreso(fecha: string, monto: number, usuarioId?: string, categoria?: Doc): Doc;
   pagoTarjeta(fecha: string, monto: number, usuarioId?: string): Doc;
   abonoDeuda(fecha: string, monto: number, usuarioId?: string): Doc;
   dineroRecibido(fecha: string, monto: number, usuarioId?: string): Doc;
   /**
    * Siembra los «datos base» de los criterios para el usuario A: julio (ingreso 3.000.000, egreso 1.000.000), agosto sin
    * movimientos, septiembre (ingresos 2.800.000 y 200.000, egresos 600.000 y 300.000, pago de tarjeta 119.802,13, abono
-   * 200.000, préstamo 500.000) y octubre (ingreso 2.500.000, egreso 1.254.700) de 2026.
+   * 200.000, préstamo 500.000) y octubre (ingreso 2.500.000, egreso 1.254.700) de 2026. Los egresos van a Hogar (julio),
+   * Alimentación y Transporte (septiembre) y Alimentación (octubre).
    */
   sembrarDatosBase(usuarioId?: string): void;
 }
@@ -89,6 +102,20 @@ export function usarEntornoEvolucion(): EntornoEvolucion {
     const categoriaEgreso = categorias.docs[0];
     const categoriaIngreso = { _id: new ObjectId(), usuarioId: null, nombre: 'Salario', tipo: 'INGRESO', esPredeterminada: true };
     categorias.docs.push(categoriaIngreso);
+    const categoria = (nombre: string, tipo = 'EGRESO', usuarioId: string | null = null): Doc => {
+      const doc = {
+        _id: new ObjectId(),
+        usuarioId: usuarioId ? new ObjectId(usuarioId) : null,
+        nombre,
+        tipo,
+        esPredeterminada: usuarioId === null,
+      };
+      categorias.docs.push(doc);
+      return doc;
+    };
+    const hogar = categoria('Hogar');
+    const alimentacion = categoria('Alimentación');
+    const transporte = categoria('Transporte');
 
     const modulo = await Test.createTestingModule({
       imports: [
@@ -131,16 +158,26 @@ export function usarEntornoEvolucion(): EntornoEvolucion {
       categorias,
       categoriaEgreso,
       categoriaIngreso,
+      hogar,
+      alimentacion,
+      transporte,
+      categoria,
       token: tokens.generar(USUARIO_ID),
       tokenOtro: tokens.generar(OTRO_USUARIO_ID),
       evolucion: (consulta = '', opciones?: OpcionesDePeticion) =>
         conSesion(request(app.getHttpServer()).get(ruta('/reportes/evolucion', consulta)), opciones),
       periodo: (consulta = '', opciones?: OpcionesDePeticion) =>
         conSesion(request(app.getHttpServer()).get(ruta('/reportes/periodo', consulta)), opciones),
+      comparacion: (consulta = '', opciones?: OpcionesDePeticion) =>
+        conSesion(request(app.getHttpServer()).get(ruta('/reportes/comparacion', consulta)), opciones),
+      reporteCategorias: (consulta = '', opciones?: OpcionesDePeticion) =>
+        conSesion(request(app.getHttpServer()).get(ruta('/reportes/categorias', consulta)), opciones),
       crearPorApi: (cuerpo: unknown) =>
         conSesion(request(app.getHttpServer()).post('/transacciones')).send(cuerpo as object),
       editarPorApi: (id: string, cuerpo: unknown) =>
         conSesion(request(app.getHttpServer()).patch(`/transacciones/${id}`)).send(cuerpo as object),
+      eliminarPorApi: (id: string) =>
+        conSesion(request(app.getHttpServer()).delete(`/transacciones/${id}`)),
       hoyEs: (iso: string) => {
         vi.useFakeTimers({ toFake: ['Date'] });
         vi.setSystemTime(new Date(iso));
@@ -149,8 +186,8 @@ export function usarEntornoEvolucion(): EntornoEvolucion {
       },
       ingreso: (fecha: string, monto: number, usuarioId = USUARIO_ID) =>
         movimiento(usuarioId, fecha, monto, { tipo: 'INGRESO', categoriaId: categoriaIngreso._id }),
-      egreso: (fecha: string, monto: number, usuarioId = USUARIO_ID) =>
-        movimiento(usuarioId, fecha, monto, { tipo: 'EGRESO', categoriaId: categoriaEgreso._id }),
+      egreso: (fecha: string, monto: number, usuarioId = USUARIO_ID, categoriaDelGasto: Doc = categoriaEgreso) =>
+        movimiento(usuarioId, fecha, monto, { tipo: 'EGRESO', categoriaId: categoriaDelGasto._id }),
       pagoTarjeta: (fecha: string, monto: number, usuarioId = USUARIO_ID) =>
         movimiento(usuarioId, fecha, monto, {
           tipo: 'EGRESO',
@@ -172,16 +209,16 @@ export function usarEntornoEvolucion(): EntornoEvolucion {
         }),
       sembrarDatosBase: (usuarioId = USUARIO_ID) => {
         entorno.ingreso('2026-07-05', 3_000_000, usuarioId);
-        entorno.egreso('2026-07-12', 1_000_000, usuarioId);
+        entorno.egreso('2026-07-12', 1_000_000, usuarioId, hogar);
         entorno.ingreso('2026-09-01', 2_800_000, usuarioId);
         entorno.ingreso('2026-09-15', 200_000, usuarioId);
-        entorno.egreso('2026-09-03', 600_000, usuarioId);
-        entorno.egreso('2026-09-10', 300_000, usuarioId);
+        entorno.egreso('2026-09-03', 600_000, usuarioId, alimentacion);
+        entorno.egreso('2026-09-10', 300_000, usuarioId, transporte);
         entorno.pagoTarjeta('2026-09-20', 119_802.13, usuarioId);
         entorno.abonoDeuda('2026-09-22', 200_000, usuarioId);
         entorno.dineroRecibido('2026-09-08', 500_000, usuarioId);
         entorno.ingreso('2026-10-01', 2_500_000, usuarioId);
-        entorno.egreso('2026-10-18', 1_254_700, usuarioId);
+        entorno.egreso('2026-10-18', 1_254_700, usuarioId, alimentacion);
       },
     });
   });
