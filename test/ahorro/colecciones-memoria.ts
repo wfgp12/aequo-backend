@@ -54,7 +54,7 @@ export function cumple(doc: Doc, condicion: Doc, clave: Clave): boolean {
 }
 
 /** Una consulta que se puede `await`ear directamente, como las de Mongoose, y también encadenar con lean/select/sort/exec. */
-export function consultaDe(obtener: (orden: unknown) => Doc[]) {
+export function consultaDe<T = Doc[]>(obtener: (orden: unknown) => T) {
   let orden: unknown;
   const consulta = {
     lean: () => consulta,
@@ -67,7 +67,7 @@ export function consultaDe(obtener: (orden: unknown) => Doc[]) {
     exec: async () => obtener(orden),
     // Mongoose devuelve una consulta "thenable": por eso este objeto lo es a propósito.
     // oxlint-disable-next-line unicorn/no-thenable
-    then: (ok: (v: Doc[]) => unknown, fallo: (e: unknown) => unknown) => Promise.resolve(obtener(orden)).then(ok, fallo),
+    then: (ok: (v: T) => unknown, fallo: (e: unknown) => unknown) => Promise.resolve(obtener(orden)).then(ok, fallo),
   };
   return consulta;
 }
@@ -183,20 +183,35 @@ export class TransaccionesEnMemoria {
     );
   }
 
-  async findOne(filtro: Doc) {
-    return this.docs.find((doc) => cumple(doc, filtro, claveFlexible)) ?? null;
+  /** Se puede `await`ear directamente o encadenar con `lean()`/`select()`/`session()`, como en Mongoose. */
+  findOne(filtro: Doc) {
+    return consultaDe(() => this.docs.find((doc) => cumple(doc, filtro, claveFlexible)) ?? null);
+  }
+
+  /** Como `findOne`: devuelve `{ _id }` si hay alguna transacción que cumpla el filtro, o `null`. */
+  exists(filtro: Doc) {
+    return consultaDe(() => {
+      const doc = this.docs.find((d) => cumple(d, filtro, claveFlexible));
+      return doc ? { _id: doc._id } : null;
+    });
   }
 
   aggregate(etapas: Doc[]) {
     return agregacion(this.docs, etapas);
   }
 
-  async countDocuments(filtro: Doc = {}) {
-    return this.docs.filter((doc) => cumple(doc, filtro, claveFlexible)).length;
+  countDocuments(filtro: Doc = {}) {
+    return consultaDe(() => this.docs.filter((doc) => cumple(doc, filtro, claveFlexible)).length);
   }
 
   async deleteOne({ _id }: Doc) {
     this.docs = this.docs.filter((doc) => String(doc._id) !== String(_id));
+  }
+
+  async deleteMany(filtro: Doc = {}) {
+    const antes = this.docs.length;
+    this.docs = this.docs.filter((doc) => !cumple(doc, filtro, claveFlexible));
+    return { acknowledged: true, deletedCount: antes - this.docs.length };
   }
 }
 
