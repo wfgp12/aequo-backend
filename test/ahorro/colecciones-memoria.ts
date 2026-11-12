@@ -7,7 +7,8 @@ import mongoose from 'mongoose';
  * el módulo de reportes. Vive en test/ (no es producción).
  *
  * Soportan `find`/`findOne` (con lean, select, session y sort encadenables y `await`eables), `create`, `countDocuments`
- * y `aggregate` con `$match` (sin castear ids, como MongoDB), `$group` (por un campo o por `null`, con `$sum`) y `$sort`.
+ * y `aggregate` con `$match` (sin castear ids, como MongoDB), `$group` (por un campo, por `null`, por el mes con
+ * `$dateToString` `%Y-%m` o por un objeto compuesto de esas claves; con `$sum`, `$min` y `$max` sobre un campo) y `$sort`.
  */
 
 export type Doc = Record<string, any>;
@@ -85,21 +86,45 @@ function ordenar(filas: Doc[], criterio: unknown): Doc[] {
   });
 }
 
-function agrupar(filas: Doc[], { _id: clave, ...acumuladores }: Doc): Doc[] {
-  const esNulo = clave === null;
-  if (!esNulo && (typeof clave !== 'string' || !clave.startsWith('$'))) {
-    throw new Error('La prueba solo soporta $group por un campo ({ _id: "$campo" }) o por null');
+/**
+ * El valor de la clave de un `$group` para una fila: `null`, un campo (`"$campo"`), `{ $dateToString: { format:
+ * "%Y-%m", date: "$campo" } }` (el mes en UTC, `YYYY-MM`) o un objeto compuesto de esas claves (`{ mes: ..., flujo: "$campo" }`).
+ */
+function valorDeClave(clave: unknown, fila: Doc): unknown {
+  if (clave === null) return null;
+  if (typeof clave === 'string' && clave.startsWith('$')) return fila[clave.slice(1)];
+  if (typeof clave === 'object') {
+    const formato = (clave as Doc).$dateToString;
+    if (formato) {
+      if (formato.format !== '%Y-%m') throw new Error('La prueba solo soporta $dateToString con el formato "%Y-%m"');
+      return (fila[String(formato.date).slice(1)] as Date).toISOString().slice(0, 7);
+    }
+    return Object.fromEntries(Object.entries(clave as Doc).map(([nombre, parte]) => [nombre, valorDeClave(parte, fila)]));
   }
+  throw new Error('Clave de $group no soportada por la prueba');
+}
+
+const llaveDe = (valor: unknown) =>
+  valor !== null && typeof valor === 'object' && !(valor instanceof Date) && !(valor instanceof ObjectId)
+    ? JSON.stringify(valor)
+    : claveEstricta(valor);
+
+function acumular(grupo: Doc, nombre: string, definicion: Doc, fila: Doc) {
+  const { $sum, $min, $max } = definicion;
+  const de = (campo: unknown) => (typeof campo === 'string' ? fila[campo.slice(1)] : campo);
+  if ($sum !== undefined) grupo[nombre] = (grupo[nombre] ?? 0) + de($sum);
+  else if ($min !== undefined) grupo[nombre] = grupo[nombre] === undefined ? de($min) : Math.min(grupo[nombre], de($min));
+  else if ($max !== undefined) grupo[nombre] = grupo[nombre] === undefined ? de($max) : Math.max(grupo[nombre], de($max));
+  else throw new Error(`Acumulador no soportado por la prueba: ${nombre}`);
+}
+
+function agrupar(filas: Doc[], { _id: clave, ...acumuladores }: Doc): Doc[] {
   const grupos = new Map<string, Doc>();
   for (const fila of filas) {
-    const valor = esNulo ? null : fila[(clave as string).slice(1)];
-    const llave = claveEstricta(valor);
+    const valor = valorDeClave(clave, fila);
+    const llave = llaveDe(valor);
     const grupo = grupos.get(llave) ?? { _id: valor };
-    for (const [nombre, definicion] of Object.entries(acumuladores)) {
-      const suma = (definicion as Doc).$sum;
-      if (suma === undefined) throw new Error(`Acumulador no soportado por la prueba: ${nombre}`);
-      grupo[nombre] = (grupo[nombre] ?? 0) + (typeof suma === 'string' ? fila[suma.slice(1)] : suma);
-    }
+    for (const [nombre, definicion] of Object.entries(acumuladores)) acumular(grupo, nombre, definicion as Doc, fila);
     grupos.set(llave, grupo);
   }
   return [...grupos.values()];

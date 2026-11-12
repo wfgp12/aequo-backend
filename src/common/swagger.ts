@@ -21,6 +21,7 @@ En esta página: pulsa **Authorize**, pega el \`accessToken\` (sin la palabra Be
 - El usuario se identifica por el **UID de Firebase**, nunca por el correo.
 - Los montos están en pesos colombianos.
 - **Zona horaria:** los endpoints de reportes que usan "hoy" (\`GET /reportes/periodo\` y \`GET /reportes/categorias\`) aceptan el header opcional \`X-Zona-Horaria\` con un nombre de zona IANA (ejemplo: \`America/Bogota\`). Solo decide qué mes es el "mes actual" cuando no se envía \`mes\` ni \`desde\`/\`hasta\`; sin el header se usa UTC. Un nombre inválido responde \`400\` aunque se envíe \`mes\` o un rango.
+- **Rangos por meses:** \`GET /reportes/evolucion\` recibe \`desde\` y \`hasta\` en \`YYYY-MM\`, opcionales e independientes: sin \`desde\` empieza en el primer mes con movimientos del usuario y sin \`hasta\` termina en el último. El rango no puede abarcar más de 120 meses (también con extremos abiertos), no agrega el mes actual y no usa \`X-Zona-Horaria\`. Un rango sin movimientos responde \`200\` con \`puntos\` vacío.
 `.trim();
 
 export const construirConfigSwagger = () =>
