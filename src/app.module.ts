@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { construirMongoUri } from './database/mongodb-uri.js';
 import { CategoriasModule } from './categorias/categorias.module.js';
 import { ReportesModule } from './reportes/reportes.module.js';
+import { TarjetasModule } from './tarjetas/tarjetas.module.js';
 import { TransaccionesModule } from './transacciones/transacciones.module.js';
 import { UsuariosModule } from './usuarios/usuarios.module.js';
 import {
@@ -34,6 +35,7 @@ import {
     TransaccionesModule,
     ReportesModule,
     AhorroModule,
+    TarjetasModule,
     ConditionalModule.registerWhen(DevSessionModule, devSessionHabilitada),
   ],
   controllers: [AppController],

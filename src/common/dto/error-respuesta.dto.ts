@@ -161,6 +161,38 @@ export class ErrorMetaNoEncontradaDto {
   error: string;
 }
 
+export class ErrorTarjetaNoEncontradaDto {
+  @ApiProperty({ type: Number, example: 404, description: 'Código HTTP de la respuesta.' })
+  statusCode: number;
+
+  @ApiProperty({
+    type: String,
+    example: 'Tarjeta no encontrada',
+    description:
+      'La tarjeta no existe o es de otro usuario: no se distingue a propósito, para no revelar qué ids existen.',
+  })
+  message: string;
+
+  @ApiProperty({ type: String, example: 'Not Found', description: 'Nombre del estado HTTP.' })
+  error: string;
+}
+
+export class ErrorCargoNoEncontradoDto {
+  @ApiProperty({ type: Number, example: 404, description: 'Código HTTP de la respuesta.' })
+  statusCode: number;
+
+  @ApiProperty({
+    type: String,
+    example: 'Cargo fijo no encontrado',
+    description:
+      'El cargo no existe, es de otro usuario o es de otra tarjeta que la de la ruta; si la tarjeta de la ruta no es propia, el mensaje es el de tarjeta no encontrada.',
+  })
+  message: string;
+
+  @ApiProperty({ type: String, example: 'Not Found', description: 'Nombre del estado HTTP.' })
+  error: string;
+}
+
 export class ErrorRecursoNoEncontradoDto {
   @ApiProperty({ type: Number, example: 404, description: 'Código HTTP de la respuesta.' })
   statusCode: number;
