@@ -12,6 +12,8 @@ import { UsuarioActual } from '../auth/decoradores.js';
 import { ErrorInternoDto, ErrorSesionInvalidaDto, ErrorValidacionDto } from '../common/dto/error-respuesta.dto.js';
 import { ApiZonaHoraria, ZonaHoraria } from '../common/zona-horaria.js';
 import { CategoriasRespuestaDto } from './dto/categorias-respuesta.dto.js';
+import { EvolucionQueryDto } from './dto/evolucion-query.dto.js';
+import { EvolucionRespuestaDto } from './dto/evolucion-respuesta.dto.js';
 import { PeriodoQueryDto } from './dto/periodo-query.dto.js';
 import { PeriodoRespuestaDto } from './dto/periodo-respuesta.dto.js';
 import { ReportesService } from './reportes.service.js';
@@ -123,5 +125,54 @@ Devuelve en qué categorías se fue el gasto del usuario dueño de la sesión en
     @ZonaHoraria() zona: string,
   ): Promise<CategoriasRespuestaDto> {
     return this.reportes.obtenerPorCategoria(usuarioId, consulta, zona);
+  }
+
+  @Get('evolucion')
+  @ApiOperation({
+    summary: 'Evolución del balance mes a mes',
+    description: `
+Devuelve el balance de cada mes del usuario dueño de la sesión, en orden cronológico, para la gráfica de evolución (CU-07, RF-19). **Requiere sesión:** header \`Authorization: Bearer <accessToken>\`. Solo cuenta los movimientos propios. Es de solo lectura.
+
+**Qué rango consulta (ambos parámetros son opcionales e independientes)**
+- \`desde=YYYY-MM\` y \`hasta=YYYY-MM\`: primer y último mes de la serie, ambos incluidos; la serie puede cruzar años. \`desde\` no puede ser posterior a \`hasta\`.
+- Sin \`desde\`, la serie empieza en el **primer mes con movimientos** del usuario; sin \`hasta\`, termina en el **último mes con movimientos**. No se agrega el mes actual ni se usa \`X-Zona-Horaria\`.
+- El rango no puede abarcar más de **120 meses** (10 años), también cuando se calcula con los extremos abiertos; en ese caso se envía \`desde\` para acotarlo.
+- Cualquier otro parámetro (por ejemplo \`mes\`) se rechaza con \`400\`.
+
+**Cómo se arma la respuesta**
+- \`desde\` y \`hasta\`: el rango efectivo (lo enviado o, si se omitió, el primer o el último mes con movimientos).
+- \`puntos\`: un punto \`{ periodo, balance }\` por **cada mes del rango**, de más antiguo a más reciente; los meses sin movimientos aparecen con \`balance\` 0.
+- \`balance\` sigue la regla de flujo de caja (ADR-014): ingresos ordinarios − egresos ordinarios − pagos de tarjeta − abonos a deudas; el dinero recibido (préstamos y avances) no suma. Coincide con el \`balance\` de \`GET /reportes/periodo?mes=\` de ese mes. Puede ser negativo.
+- El mes de un movimiento es el de su \`fecha\` (día calendario, en UTC).
+- Los montos conservan la precisión completa; el redondeo lo hace el cliente.
+
+**Otras reglas**
+- Un rango sin movimientos, o un usuario sin movimientos, responde \`200\` con \`puntos\` \`[]\` (y \`desde\`/\`hasta\` con lo enviado, \`null\` en lo omitido), no un error.
+- Se calcula al consultar: registrar, editar o eliminar un movimiento se refleja de inmediato.
+`.trim(),
+  })
+  @ApiOkResponse({
+    type: EvolucionRespuestaDto,
+    description:
+      'El rango efectivo y un punto de balance por cada mes. Con un rango o un usuario sin movimientos, `puntos` es `[]`.',
+  })
+  @ApiBadRequestResponse({
+    type: ErrorValidacionDto,
+    description:
+      '`desde` o `hasta` que no son YYYY-MM (mes de 01 a 12); `desde` posterior a `hasta`; un rango de más de 120 meses (también con extremos abiertos); o un parámetro desconocido. `message` es un arreglo con un texto por problema.',
+  })
+  @ApiUnauthorizedResponse({
+    type: ErrorSesionInvalidaDto,
+    description: 'Falta el token, es inválido, está vencido o manipulado.',
+  })
+  @ApiInternalServerErrorResponse({
+    type: ErrorInternoDto,
+    description: 'Fallo inesperado, por ejemplo MongoDB no disponible. Reintentar más tarde.',
+  })
+  obtenerEvolucion(
+    @UsuarioActual() usuarioId: string,
+    @Query() consulta: EvolucionQueryDto,
+  ): Promise<EvolucionRespuestaDto> {
+    return this.reportes.obtenerEvolucion(usuarioId, consulta);
   }
 }
