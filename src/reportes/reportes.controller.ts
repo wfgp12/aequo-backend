@@ -12,6 +12,8 @@ import { UsuarioActual } from '../auth/decoradores.js';
 import { ErrorInternoDto, ErrorSesionInvalidaDto, ErrorValidacionDto } from '../common/dto/error-respuesta.dto.js';
 import { ApiZonaHoraria, ZonaHoraria } from '../common/zona-horaria.js';
 import { CategoriasRespuestaDto } from './dto/categorias-respuesta.dto.js';
+import { ComparacionQueryDto } from './dto/comparacion-query.dto.js';
+import { ComparacionRespuestaDto } from './dto/comparacion-respuesta.dto.js';
 import { EvolucionQueryDto } from './dto/evolucion-query.dto.js';
 import { EvolucionRespuestaDto } from './dto/evolucion-respuesta.dto.js';
 import { PeriodoQueryDto } from './dto/periodo-query.dto.js';
@@ -174,5 +176,65 @@ Devuelve el balance de cada mes del usuario dueño de la sesión, en orden crono
     @Query() consulta: EvolucionQueryDto,
   ): Promise<EvolucionRespuestaDto> {
     return this.reportes.obtenerEvolucion(usuarioId, consulta);
+  }
+
+  @Get('comparacion')
+  @ApiOperation({
+    summary: 'Comparación entre periodos',
+    description: `
+Devuelve, mes a mes, las cifras del usuario dueño de la sesión para comparar sus periodos en una gráfica de barras o de líneas (CU-07, RF-15, RF-16). **Requiere sesión:** header \`Authorization: Bearer <accessToken>\`. Solo cuenta los movimientos propios. Es de solo lectura.
+
+**Qué se compara (\`tipo\`, obligatorio)**
+- \`balance\`: cada elemento de \`periodos\` trae \`{ periodo, balance }\`.
+- \`ingresos-egresos\`: trae \`{ periodo, ingresos, egresos }\`.
+- \`categoria\`: trae \`{ periodo, total, categorias }\`, donde \`categorias\` es una lista de \`{ categoriaId, nombre, total, porcentaje }\`.
+- Cualquier otro valor (por ejemplo \`BALANCE\`, \`gastos\` o \`metodo-pago\`), o ninguno, responde \`400\` con el mensaje \`tipo debe ser uno de: balance, ingresos-egresos, categoria\`.
+
+**Qué rango consulta (\`desde\` y \`hasta\` son opcionales e independientes)**
+- \`desde=YYYY-MM\` y \`hasta=YYYY-MM\`: primer y último mes del rango, ambos incluidos; puede cruzar años. \`desde\` no puede ser posterior a \`hasta\`.
+- Sin \`desde\`, el rango empieza en el **primer mes con movimientos** del usuario; sin \`hasta\`, termina en el **último mes con movimientos**. No se agrega el mes actual ni se usa \`X-Zona-Horaria\`.
+- El rango no puede abarcar más de **120 meses** (10 años), también cuando se calcula con los extremos abiertos; en ese caso se envía \`desde\` para acotarlo.
+- Cualquier otro parámetro (por ejemplo \`mes\`) se rechaza con \`400\`.
+
+**Qué meses aparecen**
+- Solo los meses del rango que tienen **al menos un movimiento de cualquier clase** (también uno solo de dinero recibido o de pago de tarjeta), de más antiguo a más reciente. **Los meses sin movimientos no aparecen** (a diferencia de \`GET /reportes/evolucion\`, que los rellena con 0).
+- El conjunto de meses es el mismo para los tres tipos. Un mes con movimientos pero sin gastos aparece en \`categoria\` con \`total\` 0 y \`categorias\` \`[]\`.
+- \`desde\` y \`hasta\` de la respuesta son el rango efectivo: lo enviado o, si se omitió, el primer o el último mes con movimientos.
+
+**Cómo se calculan las cifras (regla de flujo de caja, ADR-014)**
+- Cada cifra de un mes es igual a la del mismo mes en \`GET /reportes/periodo?mes=\` (\`balance\`, \`ingresos\`, \`egresos\`) y en \`GET /reportes/categorias?mes=\` (\`total\`, \`categorias\`, con el mismo orden, los mismos porcentajes y la misma entrada \`Sin categoría\`).
+- \`balance\` = ingresos ordinarios − egresos ordinarios − pagos de tarjeta − abonos a deudas; el dinero recibido no suma. Puede ser negativo.
+- \`ingresos\` es el ingreso propio (sin dinero recibido) y \`egresos\` el gasto propio (sin pagos de tarjeta ni abonos). Por categoría solo cuentan los egresos ordinarios.
+- El mes de un movimiento es el de su \`fecha\` (día calendario, en UTC).
+- Los montos conservan la precisión completa; el redondeo lo hace el cliente.
+
+**Otras reglas**
+- Un rango sin movimientos, o un usuario sin movimientos, responde \`200\` con \`periodos\` \`[]\` (y \`desde\`/\`hasta\` con lo enviado, \`null\` en lo omitido), no un error.
+- Se calcula al consultar: registrar, editar o eliminar un movimiento se refleja de inmediato.
+`.trim(),
+  })
+  @ApiOkResponse({
+    type: ComparacionRespuestaDto,
+    description:
+      'El tipo, el rango efectivo y una fila por cada mes con movimientos. Con un rango o un usuario sin movimientos, `periodos` es `[]`.',
+  })
+  @ApiBadRequestResponse({
+    type: ErrorValidacionDto,
+    description:
+      '`tipo` faltante o distinto de balance, ingresos-egresos y categoria; `desde` o `hasta` que no son YYYY-MM (mes de 01 a 12); `desde` posterior a `hasta`; un rango de más de 120 meses (también con extremos abiertos); o un parámetro desconocido. `message` es un arreglo con un texto por problema.',
+  })
+  @ApiUnauthorizedResponse({
+    type: ErrorSesionInvalidaDto,
+    description: 'Falta el token, es inválido, está vencido o manipulado.',
+  })
+  @ApiInternalServerErrorResponse({
+    type: ErrorInternoDto,
+    description: 'Fallo inesperado, por ejemplo MongoDB no disponible. Reintentar más tarde.',
+  })
+  compararPeriodos(
+    @UsuarioActual() usuarioId: string,
+    @Query() consulta: ComparacionQueryDto,
+  ): Promise<ComparacionRespuestaDto> {
+    return this.reportes.compararPeriodos(usuarioId, consulta);
   }
 }
