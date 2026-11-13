@@ -117,6 +117,9 @@ describe('Deduplicación de peticiones con Idempotency-Key (integración: guard 
       .useValue(transacciones)
       .overrideProvider(getModelToken(Idempotencia.name))
       .useValue(claves)
+      // 5.2.3: CategoriasModule registra también el modelo CompraCredito (reasigna sus compras al eliminar una categoría).
+      .overrideProvider(getModelToken('CompraCredito'))
+      .useValue({})
       .overrideProvider(getModelToken(Categoria.name))
       .useValue({
         findById: async (id: string) => (id === categoriaGeneral.id ? categoriaGeneral : null),

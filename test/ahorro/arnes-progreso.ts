@@ -126,6 +126,9 @@ export function usarEntornoProgreso(): EntornoProgreso {
       .useValue(metas)
       .overrideProvider(getModelToken(Transaccion.name))
       .useValue(transacciones)
+      // 5.2.3: CategoriasModule registra también el modelo CompraCredito (reasigna sus compras al eliminar una categoría).
+      .overrideProvider(getModelToken('CompraCredito'))
+      .useValue({})
       .overrideProvider(getModelToken(Categoria.name))
       .useValue(new CategoriasEnMemoria())
       .overrideProvider(getModelToken(Idempotencia.name))

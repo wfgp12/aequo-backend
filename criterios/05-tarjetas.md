@@ -895,7 +895,7 @@ Que la compra **copie** la tasa y la bandera de la tarjeta al registrarse lo hac
 
 - Entidad `CompraCredito` y esquema `CompraCreditoSchema`, en `src/tarjetas/compra-credito.schema.ts`; colección `comprascredito`; `timestamps: true`; el modelo se registra con el nombre de la clase (`CompraCredito`) en `TarjetasModule`.
 - Enumeración `TipoCompra` (`COMPRA`, `AVANCE`) en `src/tarjetas/compra-credito.enums.ts`, siguiendo `meta-ahorro.enums.ts` y `transaccion.enums.ts`. Las pruebas usan los textos `'COMPRA'` y `'AVANCE'`, no importan la enumeración, así no dependen de su archivo.
-- Campos, con los nombres del modelo lógico: `usuarioId`, `tarjetaId`, `categoriaId`, `tipo`, `descripcion`, `valor`, `cuotas`, `fecha`, `primerPago`, `tasaEAAplicada` y `cuotaUnicaSinInteres` (decisión D1).
+- Campos, con los nombres del modelo lógico: `usuarioId`, `tarjetaId`, `categoriaId`, `tipo`, `descripcion`, `valor`, `cuotas`, `fecha`, `primerPago`, `tasaEAAplicada` y `cuotaUnicaSinInteres` (decisión D1) y, desde 5.2.3, `transaccionId` (opcional; solo los avances lo llevan; ver D12 de 5.2.3, aprobada el 2026-11-13).
 - `tarjetaId` referencia a `TarjetaCredito`; `categoriaId` referencia a `Categoria`; `usuarioId` referencia a `Usuario`.
 
 ### Decisiones aprobadas por el desarrollador (2026-11-12)
@@ -915,7 +915,7 @@ El desarrollador aprobó la opción recomendada en las 14 decisiones; los criter
 11. **`cuotaUnicaSinInteres` copiada** (CA-RF26-26, CA-RF26-27). Recomendado: obligatoria y **sin** valor por defecto. Por qué: si el servicio de 5.2.3 olvidara copiarla, un valor por defecto `false` produciría en silencio una cuota con interés donde correspondía sin interés; sin valor por defecto el olvido falla al guardar. Fuente: decisión del desarrollador (nota de D10 en 5.1.2). El Documento de Diseño Técnico (modelo lógico) debe actualizarse con este campo. Alternativa: opcional con `false` por defecto, como en la tarjeta.
 12. **Índices** (CA-RF26-28, CA-RF26-29). Recomendado: un índice compuesto `{ usuarioId: 1, fecha: -1 }` (gasto por categoría del mes, igual que `transacciones`) y uno por `tarjetaId` (proyección y total del mes de una tarjeta, RF-30 y RF-31). Fuente: el modelo lógico marca `usuarioId`, `tarjetaId` y `fecha` con índice; agruparlos así es decisión de rendimiento, sin fuente. Ninguna restricción de unicidad (dos compras iguales son legítimas). Alternativa: tres índices simples, tal como los dibuja el modelo lógico.
 13. **Existencia y dueño de `tarjetaId` y `categoriaId`** (CA-RF26-07, CA-RF26-09). Recomendado: el esquema solo exige un `ObjectId`; que la tarjeta y la categoría existan y sean del usuario (404 en caso contrario, como CA-RF27-04 de la plantilla) lo comprueba el servicio de 5.2.3. Igual que D7 de 5.1.1.
-14. **Campos que el modelo lógico no trae** (CA-RF26-02). Recomendado: no agregar cuota, interés, saldo, mes del último pago (todo eso se calcula, RNF-11), estado de pagada, ni un `transaccionId` que enlace el avance con su transacción de dinero recibido; ningún RF lo pide. Si 5.2.3 necesita ese enlace para editar o eliminar un avance, se pide como cambio aparte (ADR-003).
+14. **Campos que el modelo lógico no trae** (CA-RF26-02). Recomendado: no agregar cuota, interés, saldo, mes del último pago (todo eso se calcula, RNF-11), estado de pagada, ni un `transaccionId` que enlace el avance con su transacción de dinero recibido; ningún RF lo pide. Si 5.2.3 necesita ese enlace para editar o eliminar un avance, se pide como cambio aparte (ADR-003). **Modificada el 2026-11-13 (5.2.3, D12 opción A):** el desarrollador aprobó agregar `transaccionId` (ver CA-RF28-25 y CA-RF26-02).
 
 ---
 
@@ -933,7 +933,9 @@ El desarrollador aprobó la opción recomendada en las 14 decisiones; los criter
 
 - **Dado** el esquema de la compra con tarjeta
 - **Cuando** se listan sus campos
-- **Entonces** son exactamente `usuarioId`, `tarjetaId`, `categoriaId`, `tipo`, `descripcion`, `valor`, `cuotas`, `fecha`, `primerPago`, `tasaEAAplicada` y `cuotaUnicaSinInteres` (más `_id`, `__v`, `createdAt` y `updatedAt`); **no** existe ningún campo de cuota, interés, saldo, mes del último pago, estado de pagada ni de transacción asociada, porque todo eso se calcula (RNF-11) y la entidad es anémica
+- **Entonces** son exactamente `usuarioId`, `tarjetaId`, `categoriaId`, `tipo`, `descripcion`, `valor`, `cuotas`, `fecha`, `primerPago`, `tasaEAAplicada`, `cuotaUnicaSinInteres` y `transaccionId` (más `_id`, `__v`, `createdAt` y `updatedAt`); **no** existe ningún campo de cuota, interés, saldo, mes del último pago ni estado de pagada, porque todo eso se calcula (RNF-11) y la entidad es anémica
+
+> Modificado el 2026-11-13 (5.2.3, D12 opción A): se agregó `transaccionId` a la lista; antes el criterio prohibía cualquier campo de transacción asociada. Su prueba (`compra-credito.schema.spec.ts`) cambia en el mismo sentido.
 
 #### CA-RF26-03 — La colección se llama `comprascredito` y registra fechas de creación y modificación
 
@@ -1462,3 +1464,653 @@ Todas lanzan `RangeError` con un mensaje que contiene el nombre del campo (decis
 ### Criterios con «Pendiente de decisión»
 
 Ninguno. Las decisiones D1 a D9 de este paquete quedaron aprobadas el 2026-11-12, incluido el tope de 60 cuotas de CA-RF27-13. Las reglas que dependen de ellas son: D1 y D2 (el contrato de nombres de todos los criterios), D3 (CA-RF27-19 y 20), D4 (CA-RF27-04 y 21 a 25, 32, 33), D5 (CA-RF27-11), D6 (CA-RF27-26 a 31), D7 (CA-RF27-09 y 10), D8 (CA-RF27-05 a 08) y D9 (CA-RF27-15).
+
+---
+
+## Paquete 5.2.3 — Implementar CRUD de compras y avances (backend) (RF-26, RF-28; RF-27, RF-25 y RF-33 en lo que toca a compras)
+
+Estado: Aprobado (2026-11-13)
+
+### Alcance
+
+Entran los endpoints para **registrar, listar, consultar, editar y eliminar compras a cuotas con tarjeta** (RF-26, RF-33) y para **registrar, editar y eliminar avances en efectivo** (RF-28), con la **transacción de dinero recibido** que acompaña a cada avance (ADR-014), sobre el esquema `CompraCredito` de 5.2.1 y las funciones de `src/tarjetas/cuota-credito.ts` de 5.2.2. Cada compra y cada avance que devuelve la API trae su **cuota** y su **mes del último pago**, calculados al responder y nunca guardados (RF-27, RNF-11). Entra también la regla de 5.1.2 «una tarjeta con compras no se elimina» (decisión D17) y el campo `transaccionId` de `CompraCredito` (decisión D12). **La vista previa de la cuota antes de guardar (`GET /tarjetas/:tarjetaId/cuota`, CU-14 paso 3) no entra: el desarrollador la dejó para el paquete 5.2.4 (decisión D3).**
+
+**No** entran: la proyección de pagos por mes, el total del mes y el saldo de la tarjeta (RF-30 y RF-31, 5.3.1), el registro del pago de la tarjeta (RF-32, 5.3.2), el cambio de los reportes para que cuenten las compras por su categoría (ADR-014; los reportes de 3.x hoy solo leen transacciones) ni las pantallas (5.2.4). La forma del documento ya está cubierta por CA-RF26-01..31 y CA-RF28-01..05 (5.2.1) y el cálculo por CA-RF27-01..33 (5.2.2): aquí se verifica cómo los usa la API.
+
+### Fuentes
+
+- **RF-26:** registrar una compra indicando «tarjeta, descripción, categoría, valor, número de cuotas y mes del primer pago». **RF-27:** ver la cuota estimada y el mes del último pago. **RF-28:** avance en efectivo «reflejado como dinero recibido y como compra diferida a cuotas». **RF-33:** editar y eliminar «las tarjetas, compras con tarjeta y cargos fijos». **RF-25:** la nueva tasa aplica solo a compras posteriores. Ninguno define rutas, qué se edita, qué pasa al eliminar ni cómo se enlaza el avance con su transacción: lo no definido está en las decisiones D1 a D19.
+- **Diccionario de la EDT, 5.2.3:** «Desarrollar los endpoints de compras con tarjeta y avances en efectivo; el avance genera además un ingreso clasificado como dinero recibido». Aceptación: «Un avance aparece como dinero recibido y no como ingreso propio del mes (ADR-014)» (CA-RF28-08). 5.2.4 (frontend) pide además «mostrar la cuota estimada antes de guardar» y «el mes del último pago»: esa vista previa por HTTP se trata en 5.2.4 (D3).
+- **Documento de Diseño Técnico:** CU-14 (compra: tarjeta, cuotas, mes del primer pago, cuota y mes del último pago antes de guardar, «el backend guarda la compra con una copia de la tasa vigente»; postcondición: el balance no cambia hasta registrar el pago), CU-15 (avance: valor, cuotas y mes del primer pago; «el backend crea la compra de tipo avance y un ingreso clasificado como dinero recibido»; sus cuotas entran en la proyección), CU-13 flujo 3a (eliminar una tarjeta con compras pendientes: confirmación; ver la contradicción en D17). La secuencia «compra a cuotas» dibuja la vista previa (`GET /tarjetas/:id/cuota`, que queda para 5.2.4, D3) y `POST /compras-credito` para guardar (ver D1).
+- **ADR-014 y `CLAUDE.md` (secciones 5 y 6):** una compra con tarjeta **no** es una transacción y no cambia el balance el día de la compra; el avance sí genera una transacción de ingreso `DINERO_RECIBIDO` con `tarjetaId` que no es ingreso propio; la compra copia `tasaEAAplicada` (y, por decisión de 5.2.1, `cuotaUnicaSinInteres`) al registrarse; la cuota se calcula, no se guarda; todo `POST` que crea datos lleva `@Idempotente()` y documenta `Idempotency-Key`; una categoría eliminada reasigna sus movimientos a la de respaldo; el campo del usuario se llama `usuarioId` (RF-04).
+- **Convenciones ya aprobadas** (5.1.2 y `coordinacion/contratos/tarjetas.md`): `usuarioId` sale del JWT; recurso inexistente o ajeno → `404` con el mismo mensaje, nunca `403`; id mal formado → `400`; campo no declarado → `400`; `message` de validación es un arreglo con un texto por problema que empieza por el nombre del campo; `null` al editar → `400`; errores en formato Nest `{ statusCode, message, error }`; respuestas sin `usuarioId`, `_id` ni `__v`; `creadaEn` y `actualizadaEn` en ISO UTC; `PATCH` y `DELETE` toleran repetirse.
+- **Código ya en `develop`:** `TransaccionesService` responde `409` si se intenta editar o eliminar desde `/transacciones` una transacción que no es `ORDINARIO` («la genera otro módulo»): el avance solo se gestiona desde la tarjeta. `CategoriasService.reasignarAOtros()` solo reasigna transacciones (D18). La categoría de respaldo de egresos es la general con `esRespaldo` `true` y tipo `EGRESO` (en la siembra, «Otros egresos»). `X-Zona-Horaria` (`src/common/zona-horaria.ts`) fija qué día es «hoy» (UTC sin el header). `GET /reportes/periodo` ya devuelve `dineroRecibido` a partir de las transacciones `DINERO_RECIBIDO`.
+
+### Valores de referencia
+
+- **De la hoja del promotor:** $1.254.700 a 12 cuotas con E.A. 29,21 % → cuota $119.802,13 (`119802.1331718775`); con primer pago en 2026-12, el último es 2027-11.
+- **Calculados por el tester** con la fórmula de ADR-014 en doble precisión (los mismos de 5.2.2): $1.254.700 a 6 cuotas con 0,2921 → `225196.278855`; $500.000 a 6 con 0,2921 → `89741.085062`; $80.000 a 1 cuota con 0,2921 y sin la bandera → `81726.831931` (con la bandera, `80000`); $1.254.700 a 12 con tasa 0,31 → `120662.170314`; $120.000 a 12 con tasa 0 → `10000`. Las pruebas comparan los de la hoja con 2 decimales (`toBeCloseTo(119802.13, 2)`) y los demás con 4.
+
+### Datos de las pruebas (para no repetirlos en cada criterio)
+
+- **Tarjeta «Visa»** del usuario: `tasaEA` 0,2921, `cuotaUnicaSinInteres` `false`. **Categorías:** «Hogar» (general, `EGRESO`), «Salario» (general, `INGRESO`) y «Otros egresos» (general, `EGRESO`, `esRespaldo` `true`).
+- **Compra base:** `{ "descripcion": "Televisor", "categoriaId": <Hogar>, "valor": 1254700, "cuotas": 12, "primerPago": "2026-12", "fecha": "2026-11-10" }`. **Avance base:** `{ "valor": 500000, "cuotas": 6, "primerPago": "2026-12", "fecha": "2026-11-10" }`.
+
+### Contrato de nombres (aprobado)
+
+- `TarjetasModule` registra (o importa) además el modelo `Categoria` (para validar la categoría) y, ya registrados, `CompraCredito`, `Transaccion` (ahora también se escribe en ella) e `Idempotencia`, con el nombre de su clase como token (`getModelToken(<Clase>.name)`), para que las pruebas los reemplacen por colecciones en memoria. `CategoriasModule` registra además `CompraCredito` (D18).
+- Servicio `TarjetasService` (el de `CLAUDE.md`, que ya lista `registrarCompra`, `calcularCuota` y `proyectarPagos`); controladores y DTO los nombra el implementador. Las pruebas usan solo la API HTTP, las colecciones en memoria y `src/tarjetas/cuota-credito.ts`, que ya existe.
+
+### Contrato HTTP (aprobado) (lo consumirá el frontend en 5.2.4)
+
+Todas las rutas requieren `Authorization: Bearer <accessToken>`.
+
+| Operación | Ruta | Cuerpo / query | Éxito |
+|---|---|---|---|
+| Registrar compra | `POST /tarjetas/:tarjetaId/compras` | `{ descripcion, categoriaId, valor, cuotas, primerPago, fecha? }` | `201` + compra |
+| Registrar avance | `POST /tarjetas/:tarjetaId/avances` | `{ valor, cuotas, primerPago, fecha?, descripcion? }` | `201` + compra de `tipo` `AVANCE` |
+| Listar | `GET /tarjetas/:tarjetaId/compras?tipo=COMPRA\|AVANCE&mes=YYYY-MM` | filtros opcionales | `200` + `{ items: [compra…] }` |
+| Consultar | `GET /tarjetas/:tarjetaId/compras/:id` | — | `200` + compra |
+| Editar | `PATCH /tarjetas/:tarjetaId/compras/:id` | `{ descripcion?, categoriaId?, valor?, cuotas?, primerPago?, fecha? }`, al menos uno (`categoriaId` solo en compras) | `200` + compra |
+| Eliminar | `DELETE /tarjetas/:tarjetaId/compras/:id` | — | `204` sin cuerpo |
+| Eliminar tarjeta (cambio) | `DELETE /tarjetas/:id` | — | `409` si tiene compras o avances |
+
+`POST /tarjetas/:tarjetaId/compras` y `POST …/avances` llevan `@Idempotente()`; `GET`, `PATCH` y `DELETE` no. La **compra** (y el avance, que tiene la misma forma) devuelve exactamente estos campos (no trae `usuarioId`, `_id` ni `__v`):
+
+```json
+{
+  "id": "66a0b3c4d5e6f70012ab34cf",
+  "tarjetaId": "66a0b3c4d5e6f70012ab34cd",
+  "categoriaId": "665f1c2e9b1d4a0012ab34ce",
+  "tipo": "COMPRA",
+  "descripcion": "Televisor",
+  "valor": 1254700,
+  "cuotas": 12,
+  "fecha": "2026-11-10",
+  "primerPago": "2026-12",
+  "mesUltimoPago": "2027-11",
+  "tasaEAAplicada": 0.2921,
+  "cuotaUnicaSinInteres": false,
+  "cuota": 119802.1331718775,
+  "creadaEn": "2026-11-10T15:30:00.000Z",
+  "actualizadaEn": "2026-11-10T15:30:00.000Z"
+}
+```
+
+`valor`, `tasaEAAplicada` y `cuota` son números sin redondear (RNF-11); `fecha` es `YYYY-MM-DD` (se guarda a las 00:00 UTC de ese día, como las transacciones); `primerPago` y `mesUltimoPago` son `YYYY-MM` (en la base el primero se guarda como el día 1 a las 00:00 UTC, CA-RF26-22); `cuota` y `mesUltimoPago` se calculan al responder y no existen en la base. Mensajes de error fijos: `404` de tarjeta `Tarjeta no encontrada`; `404` de compra `Compra no encontrada`; `404` de categoría `Categoría no encontrada`; `409` al eliminar una tarjeta con compras `No se puede eliminar una tarjeta que ya tiene compras registradas`.
+
+### Decisiones aprobadas por el desarrollador (2026-11-13)
+
+El desarrollador aprobó la opción recomendada en todas las decisiones, **salvo D3 (la vista previa queda fuera del paquete, para 5.2.4) y D12 (se confirma la opción A)**. Ninguna de estas reglas está definida en un RF ni en un ADR, salvo donde se cita; cada una dice su respaldo y la alternativa descartada. Los criterios de abajo ya las reflejan.
+
+> Decisión D1 — **rutas.** Recomendado: compras **anidadas** bajo su tarjeta, `/tarjetas/:tarjetaId/compras`, igual que los cargos (D1 de 5.1.2): una compra no existe sin su tarjeta, la ruta ya dice a cuál pertenece (no hay `tarjetaId` en el cuerpo que se pueda falsificar o editar) y la comprobación «la tarjeta es mía» queda en un solo lugar. Fuente en contra: la secuencia del Documento de Diseño Técnico dibuja `POST /compras-credito` (plano, con la tarjeta en el cuerpo); es un boceto sin cuerpo definido. Alternativa: `/compras-credito` con `tarjetaId` en el cuerpo (permite listar las compras de todas las tarjetas, que ningún RF pide; obliga a decidir si `tarjetaId` se edita).
+
+> Decisión D2 — **cómo se registra un avance.** Recomendado: **ruta propia de creación**, `POST /tarjetas/:tarjetaId/avances`, y el resto de operaciones (listar, consultar, editar, eliminar) en `/compras`, donde compras y avances conviven y se distinguen por `tipo` (es una sola entidad, 5.2.1). Por qué: el avance no pide categoría ni descripción obligatoria al cliente (D9, D10), crea además una transacción y es una acción distinta en la pantalla (CU-15 «Registrar avance»); con un solo `POST /compras` con `tipo`, el cuerpo cambiaría de forma según el tipo (validación condicional, Swagger confuso). La regla de `CLAUDE.md` de «un solo endpoint con `tipo`» es la de `POST /transacciones` (el cliente fija el tipo con el botón); aquí no se duplican ingreso y egreso, se separan dos acciones con datos distintos. Alternativas: `POST /compras` con `tipo` en el cuerpo, o dos recursos completos (`/compras` y `/avances`, con sus cinco rutas cada uno).
+
+> Decisión D3 — **vista previa de la cuota: fuera de este paquete.** El desarrollador decidió (2026-11-13) tratarla en 5.2.4 (`GET /tarjetas/:tarjetaId/cuota?valor&cuotas&primerPago`, dibujada en la secuencia de compra a cuotas y pedida por CU-14 paso 3). Este paquete no define ni prueba esa ruta, sus DTO ni su documentación Swagger; solo devuelve la `cuota` y el `mesUltimoPago` dentro de cada compra y avance (RF-27).
+
+> Decisión D4 — **datos de entrada y formatos.** Recomendado: compra `{ descripcion, categoriaId, valor, cuotas, primerPago, fecha? }`; avance `{ valor, cuotas, primerPago, fecha?, descripcion? }`. `tarjetaId` sale de la ruta; **el cliente nunca envía** `tipo`, `tasaEAAplicada`, `cuotaUnicaSinInteres` ni `usuarioId` (el servidor los fija o copia de la tarjeta; enviarlos es `400`). `fecha` como `YYYY-MM-DD` (se guarda a las 00:00 UTC, igual que las transacciones: evita desfases de zona); `primerPago` como `YYYY-MM` o una fecha real `YYYY-MM-DD` de la que se toma el mes (el mismo validador y criterio que `periodo` de las metas de ahorro, 4.1.2). Las reglas de cada valor son las del esquema de 5.2.1 (descripción de 1 a 200 con recorte, valor > 0 con decimales, cuotas entero de 1 a 60). Alternativa: aceptar fecha ISO con hora (arrastra el problema de la zona horaria).
+
+> Decisión D5 — **forma de la respuesta.** Recomendado: la del contrato de arriba: campos de la compra con `fecha` como `YYYY-MM-DD`, `primerPago` y `mesUltimoPago` como `YYYY-MM`, además `tasaEAAplicada` y `cuotaUnicaSinInteres` (para que la pantalla explique la cuota) y `cuota` **sin redondear**. El listado y el detalle devuelven la misma forma con la cuota calculada con la tasa de **cada** compra. No incluye el resumen de la categoría (la pantalla ya tiene la lista) ni el id de la transacción del avance (esa transacción se ve en `GET /transacciones`). Fuente: RF-27 y la secuencia (cuota y mes del último pago en la respuesta); lo demás es decisión de forma sin fuente. Alternativa: incluir `categoria` como hace `GET /transacciones`, o devolver la cuota solo en el detalle.
+
+> Decisión D6 — **`fecha` por defecto.** Recomendado: opcional; sin ella es **hoy**, en la zona del header `X-Zona-Horaria` (UTC sin el header; zona inválida → `400`), como el mes actual de los reportes. Fuente: 5.2.1 D8 dejó a este paquete poner «hoy» por defecto; RF-26 no lista la fecha como dato del usuario. Alternativa: obligatoria, como en `POST /transacciones` (el cliente siempre la envía).
+
+> Decisión D7 — **primer pago anterior al mes de la compra.** Recomendado: **se permite** (el mismo mes, el siguiente o uno anterior), sin restricción. Fuente: 5.2.1 D9 dejó la decisión a este paquete; ningún RF la restringe y el usuario puede transcribir una compra ya en curso. Alternativa: exigir que `primerPago` no sea anterior al mes de `fecha` (`400`).
+
+> Decisión D8 — **validación de la categoría de una compra.** Recomendado: la categoría debe existir y ser general o del usuario; si no, `404` con `Categoría no encontrada` (el mismo mensaje para ajena e inexistente, nunca `403`; decisión ya tomada). Si existe y es visible pero es de **ingreso**, `400` con un texto que empieza por `categoriaId` (una compra es un gasto; igual que `POST /transacciones`). Sin fuente para el `400` por tipo. Alternativa: aceptar cualquier categoría visible.
+
+> Decisión D9 — **categoría del avance.** Recomendado: el servidor la fija a la **categoría general de respaldo de egresos** (`esRespaldo` `true`, tipo `EGRESO`; «Otros egresos» en la siembra); el cliente no la envía (`400`) ni la edita. Fuente: 5.2.1 D4 la dejó obligatoria en el esquema y pidió decidir cómo se llena; RF-28 y CU-15 solo piden valor, cuotas y mes del primer pago. Alternativa: `categoriaId` opcional que, si se omite, es la de respaldo.
+
+> Decisión D10 — **descripción del avance.** Recomendado: opcional; sin ella es `Avance en efectivo` (el esquema exige descripción); con ella, mismas reglas que en la compra (recorte, máximo 200, vacía → `400`). Sin fuente. Alternativa: obligatoria.
+
+> Decisión D11 — **la transacción del avance.** Recomendado: una transacción del usuario con `tipo` `INGRESO`, `monto` = `valor` del avance, `fecha` = `fecha` del avance, `metodoPago` `EFECTIVO` (es un avance en efectivo), `clasificacionFlujo` `DINERO_RECIBIDO`, `tarjetaId` = la tarjeta, `deudaId` `null`, `categoriaId` `null` (no es ingreso propio ni cuenta por categoría, como los pagos de tarjeta) y la misma descripción. Fuente: ADR-014, CU-15 y `transaccion.schema.ts` (`categoriaId` opcional, `tarjetaId` para avances). Alternativa: `categoriaId` la de respaldo de ingresos.
+
+> Decisión D12 — **cómo se enlaza el avance con su transacción: opción A aprobada (2026-11-13, ADR-003).** `CompraCredito` gana el campo `transaccionId` (`ObjectId`, referencia a `Transaccion`, opcional y sin valor por defecto): lo llevan los avances y las compras **no** lo tienen. Sin el enlace no se puede editar ni eliminar el avance (su transacción no se gestiona desde `/transacciones`, que responde `409`) y la tarjeta quedaría bloqueada para siempre por D17. El desarrollador autorizó modificar el criterio aprobado CA-RF26-02 de 5.2.1 y su prueba (CA-RF28-25, CA-RF28-26). Como aún no hay usuarios reales no necesita migración (ADR-003 no aplica retroactivamente antes del primer despliegue). Descartadas: (B) usar el mismo `_id` para ambos documentos (acoplamiento implícito) y (C) buscar la transacción por tarjeta, monto, fecha y descripción (falla con dos avances iguales).
+
+> Decisión D13 — **qué se edita.** Recomendado: en una compra, `descripcion`, `categoriaId`, `valor`, `cuotas`, `primerPago` y `fecha`; en un avance, `descripcion`, `valor`, `cuotas`, `primerPago` y `fecha` (su transacción sigue a `descripcion`, `valor` y `fecha`; `categoriaId` en un avance es `400`). **No** se edita `tarjetaId` (para mover una compra se elimina y se crea otra), `tipo`, `tasaEAAplicada` ni `cuotaUnicaSinInteres`: **editar una compra nunca vuelve a copiar la tasa ni la bandera de la tarjeta** (ADR-014; la cuota se recalcula con la tasa de la compra). Sin fuente propia salvo RF-33 (editar compras) y ADR-014. Alternativa: no permitir editar avances (solo eliminar y volver a crear).
+
+> Decisión D14 — **eliminar.** Recomendado: borrado físico, `204`. Eliminar un avance elimina también **su** transacción de dinero recibido (y solo esa). Fuente: RF-33; el borrado de metas y cargos es físico. Alternativa: borrado lógico (estado «anulada»), que obligaría a agregar un campo que ningún RF pide.
+
+> Decisión D15 — **atomicidad entre compra y transacción.** Recomendado: el criterio es observable (CA-RF28-17 y 23): si falla el guardado de cualquiera de las dos partes, **no queda ninguna a medias**, responde `500` (no un éxito parcial) y la misma petición con la misma `Idempotency-Key` se puede reintentar (la clave se libera). El mecanismo lo elige el implementador: una transacción de MongoDB (necesita conjunto de réplicas y no se puede probar con las colecciones en memoria) o compensación (deshacer la primera si falla la segunda; un corte del proceso entre ambos pasos no queda cubierto). Fuente: ninguna. Alternativa: exigir transacción de MongoDB.
+
+> Decisión D16 — **listado.** Recomendado: ordenado por `fecha` descendente y, a igual fecha, por creación descendente (lo más reciente primero); filtros opcionales `tipo` (`COMPRA` o `AVANCE`) y `mes` (`YYYY-MM`, el mes de la **fecha de la compra**, como cuenta en ADR-014); otro parámetro o valor inválido → `400`; sin paginación (como D6 de 5.1.2). Riesgo: una tarjeta acumula compras sin límite (no hay estado «pagada»); si el desarrollador lo prefiere, paginación por cursor como `GET /transacciones`. Sin fuente.
+
+> Decisión D17 — **eliminar una tarjeta con compras.** Recomendado: `409` con `No se puede eliminar una tarjeta que ya tiene compras registradas` (avances incluidos), sin borrar nada (ni cargos ni compras), y con prioridad sobre el mensaje de pagos: un avance tiene una transacción con el `tarjetaId` y la comprobación de pagos de 5.1.2 mostraría «pagos» sin serlo. Es la extensión de D4 de 5.1.2 que ese paquete dejó a este; **ningún criterio de 5.1.2 cambia** (CA-RF33-19 a 22 solo crean pagos). **Contradice CU-13 flujo 3a**, que pide confirmación y borrar con su proyección; el desarrollador ya decidió el `409` (la confirmación del cliente sería antes de eliminar las compras una a una). Alternativa: `DELETE /tarjetas/:id?confirmar=true` que borre en cascada compras, avances y sus transacciones.
+
+> Decisión D18 — **eliminar una categoría usada por compras.** Recomendado: al eliminar una categoría personalizada, sus **compras** (además de sus transacciones) pasan a la categoría general de respaldo de egresos (RF-12, `CLAUDE.md` sección 6); hoy `reasignarAOtros()` solo reasigna transacciones y dejaría compras apuntando a una categoría inexistente. Alternativa: `409` si la categoría tiene compras.
+
+> Decisión D19 — **mensajes y orden de las comprobaciones.** Recomendado: `Tarjeta no encontrada`, `Compra no encontrada` (inexistente, ajena o de otra tarjeta) y `Categoría no encontrada`. Primero se valida el formato de ids y cuerpo (`400`), luego la tarjeta (`404`), luego la categoría (`404`/`400`) y solo entonces se guarda. Sin fuente; es la convención de 5.1.2.
+
+---
+
+### RF-26 — Registrar compras con tarjeta de crédito (API)
+
+#### Registrar (`POST /tarjetas/:tarjetaId/compras`)
+
+#### CA-RF26-32 — Registrar la compra de referencia de la hoja del promotor
+
+- **Dado** la tarjeta «Visa» (E.A. 0,2921, sin la bandera) del usuario y la categoría «Hogar»
+- **Cuando** envía `POST /tarjetas/<visa>/compras` con la compra base ($1.254.700, 12 cuotas, primer pago `2026-12`, fecha `2026-11-10`)
+- **Entonces** responde `201` con exactamente los campos del contrato: `tipo` `COMPRA`, `tarjetaId` y `categoriaId` como texto, `valor` 1254700, `cuotas` 12, `fecha` `"2026-11-10"`, `primerPago` `"2026-12"`, `mesUltimoPago` `"2027-11"`, `tasaEAAplicada` 0,2921, `cuotaUnicaSinInteres` `false`, `cuota` 119802,13 (`toBeCloseTo(119802.13, 2)`) y las fechas `creadaEn` y `actualizadaEn`, sin `usuarioId`, `_id` ni `__v`; en la base hay un solo documento con el `usuarioId` del usuario, `primerPago` 2026-12-01T00:00:00.000Z, `fecha` 2026-11-10T00:00:00.000Z y **sin** campos `cuota` ni `mesUltimoPago` (se calculan, no se guardan)
+
+#### CA-RF26-33 — Una compra con tarjeta no es una transacción
+
+- **Dado** un usuario sin transacciones
+- **Cuando** registra la compra base
+- **Entonces** la colección de transacciones sigue vacía (ADR-014: el dinero sale del bolsillo cuando se paga la tarjeta, no al comprar)
+
+#### CA-RF26-34 — La compra copia la tasa y la bandera de la tarjeta
+
+- **Dado** una tarjeta con `tasaEA` 0,31 y `cuotaUnicaSinInteres` `true`
+- **Cuando** registra una compra en ella
+- **Entonces** la respuesta y el documento guardado traen `tasaEAAplicada` 0,31 y `cuotaUnicaSinInteres` `true` (el cliente no los envía; ver CA-RF26-49)
+
+#### CA-RF26-35 — Sin `fecha`, la compra es de hoy en la zona del cliente
+
+- **Dado** que en el servidor son las 02:00 UTC del 2026-11-11 y una tarjeta del usuario
+- **Cuando** registra la compra base sin `fecha`, una vez sin header, otra con `X-Zona-Horaria: America/Bogota` (UTC−5: aún es el día 10) y otra con `X-Zona-Horaria: Zona/Invalida`
+- **Entonces** las dos primeras responden `201` con `fecha` `"2026-11-11"` y `"2026-11-10"` y se guardan a las 00:00 UTC de ese día; la tercera responde `400` y no guarda nada
+
+
+#### CA-RF26-36 — La fecha admite pasado, futuro y fin de mes
+
+- **Dado** una tarjeta del usuario
+- **Cuando** registra compras con `fecha` `2020-01-31`, `2026-02-28` y `2030-06-15`
+- **Entonces** las tres responden `201`, devuelven y guardan exactamente ese día (a las 00:00 UTC), sin pasarlo al día 1 (la compra cuenta en el mes de su fecha, ADR-014)
+
+#### CA-RF26-37 — El mes del primer pago se acepta como `YYYY-MM` o como fecha y se guarda como el día 1
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía `primerPago` `"2026-12"`, `"2026-12-15"`, `"2026-01-31"` o `"2026-02-28"`
+- **Entonces** las cuatro responden `201` con `primerPago` `"2026-12"`, `"2026-12"`, `"2026-01"` y `"2026-02"`, y la base guarda el día 1 de ese mes a las 00:00:00.000 UTC (el día de fin de mes no corre el mes)
+
+#### CA-RF26-38 — El primer pago puede caer antes, en o después del mes de la compra
+
+- **Dado** una compra con `fecha` `2026-11-10`
+- **Cuando** `primerPago` es `"2026-10"`, `"2026-11"` o `"2026-12"`
+- **Entonces** las tres responden `201` (el usuario puede transcribir una compra ya en curso)
+
+
+#### CA-RF26-39 — Cuotas en los dos extremos: 1 y 60
+
+- **Dado** una tarjeta «Visa» (0,2921, sin la bandera) y `primerPago` `"2026-12"`
+- **Cuando** registra una compra de $1.254.700 a 1 cuota y otra a 60 cuotas
+- **Entonces** responden `201`; la primera tiene `mesUltimoPago` `"2026-12"` (el mismo mes) y la segunda `"2031-11"`; ambas tienen `cuota` finita y positiva
+
+#### CA-RF26-40 — El valor admite decimales y se guarda sin redondear
+
+- **Dado** una tarjeta del usuario
+- **Cuando** registra compras con `valor` 100,5 y 0,01
+- **Entonces** responden `201` y devuelven y guardan exactamente 100,5 y 0,01
+
+#### CA-RF26-41 — La descripción se recorta y admite hasta 200 caracteres
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía `descripcion` `"  Televisor  "` y otra de exactamente 200 caracteres
+- **Entonces** ambas responden `201`; la primera devuelve y guarda `"Televisor"`; la segunda conserva sus 200 caracteres
+
+#### CA-RF26-42 — Faltan campos obligatorios
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía la compra base sin `descripcion`, o sin `categoriaId`, o sin `valor`, o sin `cuotas`, o sin `primerPago` (cada caso por separado), o `{}`
+- **Entonces** cada una responde `400` con un texto por cada campo faltante que empieza por el nombre del campo, y no se guarda nada (`fecha` no es obligatoria: CA-RF26-35)
+
+#### CA-RF26-43 — Descripción inválida
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía `descripcion` vacía, solo espacios, de 201 caracteres, el número `123`, `true` o `null`
+- **Entonces** cada una responde `400` con un texto que empieza por `descripcion`, y no se guarda nada
+
+#### CA-RF26-44 — Valor inválido
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía `valor` 0, −1, `"1000"` (texto numérico), `"abc"` o `null`
+- **Entonces** cada una responde `400` con un texto que empieza por `valor`, y no se guarda nada
+
+#### CA-RF26-45 — Cuotas inválidas
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía `cuotas` 0, −1, 12,5, 61, `"12"` o `null`
+- **Entonces** cada una responde `400` con un texto que empieza por `cuotas`, y no se guarda nada (el tope de 60 es el aprobado en 5.2.1, D7)
+
+#### CA-RF26-46 — Mes del primer pago inválido
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía `primerPago` `"pronto"`, `"2026-13"`, `"2026-02-30"`, `"2026-12-01T00:00:00.000Z"` (con hora), el número `202612` o `null`
+- **Entonces** cada una responde `400` con un texto que empieza por `primerPago`, y no se guarda nada
+
+#### CA-RF26-47 — Fecha de la compra inválida
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía `fecha` `"ayer"`, `"10/11/2026"`, `"2026-02-30"`, `"2026-11-10T15:00:00.000Z"` (con hora) o `null`
+- **Entonces** cada una responde `400` con un texto que empieza por `fecha`, y no se guarda nada
+
+#### CA-RF26-48 — `categoriaId` con formato inválido
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía `categoriaId` `"no-es-un-id"` o el número `5`
+- **Entonces** responde `400` con un texto que empieza por `categoriaId` (distinto del `404` de una categoría válida que no existe, CA-RF26-51)
+
+#### CA-RF26-49 — Campos no declarados se rechazan
+
+- **Dado** una tarjeta del usuario
+- **Cuando** el cuerpo incluye además `usuarioId`, `id`, `tarjetaId`, `tipo` (también `"AVANCE"`), `tasaEAAplicada`, `cuotaUnicaSinInteres`, `cuota`, `mesUltimoPago`, `createdAt` o cualquier otro campo
+- **Entonces** responde `400` con un texto por el campo sobrante y no se guarda nada (la compra es del usuario del JWT y de la tarjeta de la ruta, y la tasa y la bandera las copia el servidor)
+
+#### CA-RF26-50 — La tarjeta de la ruta: mal formada 400; inexistente o de otro usuario 404
+
+- **Dado** una tarjeta «Visa» del usuario B y un id válido que no existe
+- **Cuando** el usuario A registra una compra válida en cada una, y en la ruta `/tarjetas/no-es-un-id/compras`
+- **Entonces** las dos primeras responden `404` con `Tarjeta no encontrada` (el mismo mensaje, nunca `403`) y la tercera `400` con un texto que empieza por `tarjetaId`; no se guarda ninguna compra
+
+#### CA-RF26-51 — Categoría inexistente o de otro usuario: 404
+
+- **Dado** una categoría personalizada del usuario B y un id de categoría válido que no existe
+- **Cuando** el usuario A registra la compra base con cada una
+- **Entonces** ambas responden `404` con `Categoría no encontrada` (el mismo mensaje, nunca `403`) y no se guarda nada
+
+#### CA-RF26-52 — La categoría puede ser general o propia
+
+- **Dado** la categoría general «Hogar» y una categoría personalizada de egresos «Mascotas» del usuario
+- **Cuando** registra una compra con cada una
+- **Entonces** ambas responden `201` con ese `categoriaId`
+
+#### CA-RF26-53 — Una categoría de ingreso no sirve para una compra
+
+- **Dado** la categoría general de ingresos «Salario»
+- **Cuando** registra la compra base con ese `categoriaId`
+- **Entonces** responde `400` con un texto que empieza por `categoriaId` y no se guarda nada (igual que `POST /transacciones`)
+
+
+#### CA-RF26-54 — Repetir la petición con la misma clave de idempotencia no duplica la compra
+
+- **Dado** un usuario que registra la compra base con header `Idempotency-Key` y obtiene `201`
+- **Cuando** repite la misma petición con la misma clave
+- **Entonces** recibe la misma respuesta (mismo `id`) con `Idempotent-Replayed: true`, hay una sola compra en la base y no hay `409`
+
+#### CA-RF26-55 — La misma clave con otra petición se rechaza
+
+- **Dado** una clave ya usada con la compra base
+- **Cuando** se envía con la misma clave la compra con `valor` 1000000
+- **Entonces** responde `422` y la compra original no cambia
+
+#### CA-RF26-56 — Dos compras iguales con claves distintas son legítimas
+
+- **Dado** un usuario con la compra base ya registrada
+- **Cuando** envía la misma compra con otra `Idempotency-Key` (o sin ninguna)
+- **Entonces** responde `201` con otro `id` y hay dos compras (no se deduplica por contenido)
+
+#### CA-RF26-57 — Todas las rutas exigen sesión
+
+- **Dado** una petición sin header `Authorization`, o con un token inválido o vencido
+- **Cuando** llama a cada una de las seis rutas nuevas del contrato (`POST …/compras`, `POST …/avances`, `GET …/compras`, `GET …/compras/:id`, `PATCH …/compras/:id`, `DELETE …/compras/:id`) con ids válidos
+- **Entonces** todas responden `401` y no se guarda ni se cambia nada
+
+#### Listar (`GET /tarjetas/:tarjetaId/compras`)
+
+#### CA-RF26-58 — Lista solo las compras de esa tarjeta y del usuario, la más reciente primero
+
+- **Dado** el usuario A con tres compras en «Visa» (fechas `2026-11-10`, `2026-11-25` y otra `2026-11-10` creada después), una compra en «Mastercard» y compras del usuario B en una tarjeta suya
+- **Cuando** A envía `GET /tarjetas/<visa>/compras`
+- **Entonces** responde `200` con `{ "items": [...] }` de exactamente las tres compras de «Visa», en el orden `2026-11-25`, la `2026-11-10` creada después y la `2026-11-10` creada antes; cada elemento tiene la forma del contrato (sin `usuarioId`); y una tarjeta sin compras responde `{ "items": [] }`, no `404`
+
+
+#### CA-RF26-59 — El listado incluye compras y avances, y se puede filtrar por tipo
+
+- **Dado** una compra y un avance en «Visa»
+- **Cuando** envía el listado sin filtro, con `tipo=COMPRA` y con `tipo=AVANCE`
+- **Entonces** devuelve las dos, solo la compra y solo el avance, cada una con su `tipo`
+
+#### CA-RF26-60 — El filtro `mes` usa el mes de la fecha de la compra, con bordes de mes
+
+- **Dado** compras en «Visa» con `fecha` `2026-10-31`, `2026-11-01`, `2026-11-30`, `2026-12-01` y `2028-02-29`
+- **Cuando** envía `mes=2026-11` y, aparte, `mes=2028-02`
+- **Entonces** la primera devuelve solo las del `2026-11-01` y `2026-11-30` y la segunda solo la del `2028-02-29` (el `primerPago` no cuenta para el filtro)
+
+
+#### CA-RF26-61 — Parámetros inválidos en el listado
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía `tipo=PRESTAMO`, `tipo=avance`, `mes=2026-13`, `mes=2026-11-01` o un parámetro desconocido (`?foo=1`)
+- **Entonces** cada una responde `400` con un texto que empieza por el parámetro inválido
+
+#### CA-RF26-62 — Listar las compras de una tarjeta ajena o inexistente: 404
+
+- **Dado** una tarjeta del usuario B con compras y un id válido inexistente
+- **Cuando** el usuario A lista las compras de cada una
+- **Entonces** ambas responden `404` con `Tarjeta no encontrada`
+
+#### Consultar (`GET /tarjetas/:tarjetaId/compras/:id`)
+
+#### CA-RF26-63 — Consultar una compra propia
+
+- **Dado** la compra base registrada en «Visa»
+- **Cuando** envía `GET /tarjetas/<visa>/compras/<id>`
+- **Entonces** responde `200` con la misma compra que devolvió el `POST` (incluidos `cuota` y `mesUltimoPago`)
+
+#### CA-RF26-64 — Compra inexistente, ajena o en otra tarjeta: 404; id mal formado: 400
+
+- **Dado** una compra del usuario B, una compra propia de «Mastercard» pedida bajo la ruta de «Visa», un id válido inexistente y `no-es-un-id`
+- **Cuando** el usuario A las consulta bajo la ruta de «Visa»
+- **Entonces** las tres primeras responden `404` con `Compra no encontrada` (el mismo mensaje) y la cuarta `400` con un texto que empieza por `id`
+
+#### CA-RF26-65 — Eliminar una categoría usada por compras las reasigna a la de respaldo
+
+- **Dado** una categoría personalizada de egresos «Mascotas» del usuario con una compra, y la general de respaldo de egresos
+- **Cuando** elimina «Mascotas» con `DELETE /categorias/<id>`
+- **Entonces** responde `204` y la compra sigue existiendo con `categoriaId` igual al de la categoría de respaldo (ninguna compra queda apuntando a una categoría inexistente)
+
+
+---
+
+### RF-27 — Cuota y mes del último pago en la API de compras
+
+#### CA-RF27-34 — La compra devuelve su cuota con precisión completa
+
+- **Dado** la compra de referencia registrada (tarjeta 0,2921, sin la bandera)
+- **Cuando** se consulta con `GET …/compras/<id>`
+- **Entonces** `cuota` está dentro de `119802.1331718775` con 6 decimales y **no** es el valor redondeado (`119802.13` ni `119802`): el backend calcula con precisión completa y redondea solo quien presenta (RNF-11)
+
+#### CA-RF27-35 — Una cuota sin interés solo con la bandera de la tarjeta copiada
+
+- **Dado** una tarjeta «Débito» con `cuotaUnicaSinInteres` `true` y otra «Visa» con `false`, ambas con tasa 0,2921
+- **Cuando** registra en cada una una compra de $80.000 a 1 cuota, y en «Débito» una de $80.000 a 2 cuotas
+- **Entonces** `cuota` es `80000` en «Débito» a 1 cuota, `81726.8319` (4 decimales) en «Visa» a 1 cuota, y en «Débito» a 2 cuotas la cuota con interés (mayor que 40.000: la bandera solo exime la cuota única)
+
+#### CA-RF27-36 — Tasa cero: el valor entre las cuotas
+
+- **Dado** una tarjeta con `tasaEA` 0
+- **Cuando** registra una compra de $120.000 a 12 cuotas
+- **Entonces** `cuota` es exactamente `10000` y `tasaEAAplicada` es `0`
+
+#### CA-RF27-37 — El mes del último pago cruza años y es el mismo mes con una cuota
+
+- **Dado** una tarjeta del usuario
+- **Cuando** registra compras con `primerPago` `"2026-12"` a 12 cuotas, `"2026-11"` a 24 cuotas y `"2026-01-31"` a 1 cuota
+- **Entonces** `mesUltimoPago` es `"2027-11"`, `"2028-10"` y `"2026-01"`
+
+#### CA-RF27-38 — Cada compra del listado trae su cuota con su propia tasa
+
+- **Dado** «Visa» con la compra de referencia a 0,2921 y, tras subir la tasa de la tarjeta a 0,31, otra compra igual ($1.254.700 a 12 cuotas)
+- **Cuando** lista las compras
+- **Entonces** la primera trae `cuota` 119802,13 y `tasaEAAplicada` 0,2921 y la segunda 120662,1703 (4 decimales) y 0,31
+
+---
+
+### RF-25 — El cambio de tasa no recalcula las compras anteriores (con compras reales)
+
+#### CA-RF25-07 — Cambiar la tasa de la tarjeta no altera la cuota de las compras anteriores
+
+- **Dado** la compra de referencia registrada con la tasa 0,2921 (cuota 119.802,13)
+- **Cuando** el usuario cambia la tasa de «Visa» a 0,31 con `PATCH /tarjetas/<visa>` y registra otra compra igual
+- **Entonces** al consultar la primera sigue con `tasaEAAplicada` 0,2921 y `cuota` 119802,13; la segunda trae 0,31 y 120662,17; y en la base la primera conserva 0,2921
+
+#### CA-RF25-08 — Cambiar la bandera de la tarjeta tampoco recalcula las compras anteriores
+
+- **Dado** «Visa» con `cuotaUnicaSinInteres` `true` y una compra de $80.000 a 1 cuota (cuota 80.000)
+- **Cuando** el usuario pone la bandera en `false` y registra otra compra de $80.000 a 1 cuota
+- **Entonces** la primera conserva `cuotaUnicaSinInteres` `true` y `cuota` 80000; la segunda trae `false` y `81726.8319`
+
+#### CA-RF25-09 — Editar una compra no vuelve a copiar la tasa de la tarjeta
+
+- **Dado** la compra de referencia (0,2921) y la tarjeta cuya tasa ya se cambió a 0,31
+- **Cuando** edita la compra con `PATCH` y `{ "cuotas": 6 }`
+- **Entonces** `tasaEAAplicada` sigue en 0,2921 y `cuota` es la de 6 cuotas con esa tasa: 225196,2789 (4 decimales)
+
+---
+
+### RF-33 — Editar y eliminar compras (API)
+
+#### Editar (`PATCH /tarjetas/:tarjetaId/compras/:id`)
+
+#### CA-RF33-27 — Cambiar la descripción de una compra
+
+- **Dado** la compra base registrada
+- **Cuando** envía `PATCH` con `{ "descripcion": "  Televisor 55 pulgadas  " }`
+- **Entonces** responde `200` con `descripcion` `"Televisor 55 pulgadas"`, el resto igual y `actualizadaEn` no anterior a la de antes; la base refleja el cambio
+
+#### CA-RF33-28 — Cambiar varios campos recalcula la cuota y el mes del último pago
+
+- **Dado** la compra base y la categoría personalizada «Mascotas» del usuario
+- **Cuando** envía `{ "valor": 500000, "cuotas": 6, "primerPago": "2027-01-20", "fecha": "2026-11-28", "categoriaId": <Mascotas>, "descripcion": "Cama" }`
+- **Entonces** responde `200` con esos valores, `primerPago` `"2027-01"`, `mesUltimoPago` `"2027-06"` y `cuota` 89741,0851 (4 decimales: $500.000 a 6 cuotas con 0,2921); la base guarda `primerPago` 2027-01-01T00:00:00.000Z; `tasaEAAplicada`, `cuotaUnicaSinInteres`, `tipo` y `tarjetaId` no cambian
+
+#### CA-RF33-29 — Cuerpo vacío o con `null`
+
+- **Dado** la compra base
+- **Cuando** envía `{}`, o `{ "descripcion": null }`, `{ "valor": null }`, `{ "cuotas": null }`, `{ "primerPago": null }`, `{ "fecha": null }` o `{ "categoriaId": null }`
+- **Entonces** cada una responde `400` y la compra no cambia (al menos un campo, y a una compra no se le quita un dato)
+
+#### CA-RF33-30 — Valores inválidos al editar
+
+- **Dado** la compra base
+- **Cuando** envía `valor` 0, `cuotas` 61, `cuotas` 12,5, `descripcion` de 201 caracteres o solo espacios, `primerPago` `"pronto"`, `fecha` `"2026-02-30"` o `categoriaId` `"no-es-un-id"`
+- **Entonces** cada una responde `400` con un texto que empieza por el campo inválido y la compra no cambia
+
+#### CA-RF33-31 — Campos que no se editan se rechazan
+
+- **Dado** la compra base
+- **Cuando** envía `tarjetaId` (también el de otra tarjeta propia), `tipo` (también `"AVANCE"`), `tasaEAAplicada`, `cuotaUnicaSinInteres`, `usuarioId`, `id`, `cuota`, `mesUltimoPago`, `creadaEn` o cualquier otro campo
+- **Entonces** cada una responde `400` con un texto por el campo y la compra no cambia (para mover una compra de tarjeta se elimina y se crea otra)
+
+#### CA-RF33-32 — La categoría al editar: 404, 400 o válida
+
+- **Dado** la compra base, una categoría personalizada del usuario B, un id de categoría inexistente, la categoría de ingresos «Salario» y la categoría general «Alimentación» de egresos
+- **Cuando** edita `categoriaId` con cada una
+- **Entonces** las dos primeras responden `404` con `Categoría no encontrada`, «Salario» responde `400` con un texto que empieza por `categoriaId`, y «Alimentación» responde `200`; la compra solo cambia en el último caso
+
+
+#### CA-RF33-33 — Editar una compra ajena, de otra tarjeta o inexistente: 404
+
+- **Dado** una compra del usuario B, una compra propia de «Mastercard» enviada bajo la ruta de «Visa», un id válido inexistente y una tarjeta de la ruta ajena
+- **Cuando** el usuario A les envía un `PATCH` válido
+- **Entonces** las tres primeras responden `404` con `Compra no encontrada`, la cuarta con `Tarjeta no encontrada`, y ninguna compra cambia; un id mal formado en la ruta responde `400`
+
+#### CA-RF33-34 — Repetir la misma edición es inofensivo
+
+- **Dado** la compra base
+- **Cuando** envía dos veces `{ "valor": 900000 }`
+- **Entonces** ambas responden `200` con el mismo resultado y solo hay una compra
+
+#### Eliminar (`DELETE /tarjetas/:tarjetaId/compras/:id`)
+
+#### CA-RF33-35 — Eliminar una compra
+
+- **Dado** dos compras en «Visa», una transacción ordinaria del usuario y una compra en «Mastercard»
+- **Cuando** elimina la primera con `DELETE`
+- **Entonces** responde `204` sin cuerpo; su `GET` responde `404`; la otra compra, la de «Mastercard» y la transacción ordinaria siguen intactas (el borrado es físico y definitivo)
+
+#### CA-RF33-36 — Eliminar de nuevo, o una compra ajena, de otra tarjeta o inexistente: 404
+
+- **Dado** una compra ya eliminada, una compra del usuario B, una compra de «Mastercard» bajo la ruta de «Visa» y un id inexistente
+- **Cuando** el usuario A les envía `DELETE` bajo la ruta de «Visa»
+- **Entonces** todas responden `404` con `Compra no encontrada` y nada se elimina; con un id mal formado, `400`
+
+#### Eliminar una tarjeta que tiene compras (`DELETE /tarjetas/:id`)
+
+#### CA-RF33-37 — No se elimina una tarjeta con compras
+
+- **Dado** «Visa» con un cargo fijo y una compra
+- **Cuando** el usuario envía `DELETE /tarjetas/<visa>`
+- **Entonces** responde `409` con `No se puede eliminar una tarjeta que ya tiene compras registradas`; la tarjeta, su cargo y su compra siguen existiendo intactos
+
+
+#### CA-RF33-38 — Una tarjeta con solo un avance también da el 409 de compras
+
+- **Dado** «Visa» con un avance (que tiene su transacción de dinero recibido con el `tarjetaId` de la tarjeta) y sin pagos, y otra tarjeta con un pago y una compra
+- **Cuando** el usuario envía `DELETE` a cada una
+- **Entonces** ambas responden `409` con el mensaje de **compras** (no el de pagos, aunque haya transacciones con su `tarjetaId`) y no se borra nada
+
+#### CA-RF33-39 — Las compras de otra tarjeta no bloquean; sin las compras, la tarjeta se elimina
+
+- **Dado** «Visa» sin compras, y «Mastercard» con un cargo fijo y una compra
+- **Cuando** el usuario elimina «Visa» y, después de eliminar la compra de «Mastercard», elimina también «Mastercard»
+- **Entonces** ambas responden `204`, y el cargo de «Mastercard» se borra en cascada
+
+#### CA-RF33-40 — Eliminar la tarjeta ajena con compras: 404, nunca 409
+
+- **Dado** una tarjeta del usuario B con compras
+- **Cuando** el usuario A envía `DELETE /tarjetas/<id>`
+- **Entonces** responde `404` con `Tarjeta no encontrada` (un `409` revelaría que existe) y la tarjeta y sus compras siguen existiendo
+
+---
+
+### RF-28 — Registrar avances en efectivo (API)
+
+#### Registrar (`POST /tarjetas/:tarjetaId/avances`)
+
+#### CA-RF28-06 — Registrar un avance
+
+- **Dado** la tarjeta «Visa» (0,2921, sin la bandera) del usuario y la categoría de respaldo de egresos
+- **Cuando** envía `POST /tarjetas/<visa>/avances` con el avance base ($500.000 a 6 cuotas, primer pago `2026-12`, fecha `2026-11-10`)
+- **Entonces** responde `201` con la forma de la compra: `tipo` `AVANCE`, `descripcion` `"Avance en efectivo"`, `categoriaId` el de la categoría de respaldo de egresos, `valor` 500000, `cuotas` 6, `fecha` `"2026-11-10"`, `primerPago` `"2026-12"`, `mesUltimoPago` `"2027-05"`, `tasaEAAplicada` 0,2921, `cuotaUnicaSinInteres` `false` y `cuota` 89741,0851 (4 decimales); en la base hay un documento `AVANCE` del usuario
+
+#### CA-RF28-07 — El avance crea su transacción de dinero recibido
+
+- **Dado** un usuario sin transacciones
+- **Cuando** registra el avance base
+- **Entonces** hay exactamente una transacción, del usuario, con `tipo` `INGRESO`, `monto` 500000, `fecha` 2026-11-10T00:00:00.000Z, `metodoPago` `EFECTIVO`, `clasificacionFlujo` `DINERO_RECIBIDO`, `tarjetaId` el de «Visa», `deudaId` `null`, `categoriaId` `null` y la misma descripción que el avance
+
+
+#### CA-RF28-08 — Un avance aparece como dinero recibido y no como ingreso propio (criterio de la EDT)
+
+- **Dado** un usuario sin movimientos y con el avance base registrado en noviembre de 2026
+- **Cuando** consulta `GET /reportes/periodo?mes=2026-11`
+- **Entonces** `dineroRecibido` es 500000, `ingresos` es 0 y `balance` es 0 (ADR-014: el avance no es ingreso propio y no suma al balance)
+
+#### CA-RF28-09 — La descripción del avance
+
+- **Dado** una tarjeta del usuario
+- **Cuando** registra avances con `descripcion` `"  Para el arriendo  "`, uno de 200 caracteres, y otros con `descripcion` vacía, solo espacios, de 201 caracteres, `123` o `null`
+- **Entonces** los dos primeros responden `201` (el primero con `"Para el arriendo"` en el avance y en su transacción) y los demás `400` con un texto que empieza por `descripcion`, sin guardar compra ni transacción
+
+
+#### CA-RF28-10 — La categoría del avance la pone el servidor
+
+- **Dado** la categoría general de respaldo de egresos y otras categorías (propia, general, ajena y de ingreso)
+- **Cuando** registra un avance sin `categoriaId`, y otros enviando `categoriaId` con cada una de esas categorías
+- **Entonces** el primero responde `201` con `categoriaId` de la categoría de respaldo; los demás responden `400` con un texto que empieza por `categoriaId` y no guardan nada
+
+
+#### CA-RF28-11 — Sin `fecha`, el avance y su transacción son de hoy
+
+- **Dado** que en el servidor son las 02:00 UTC del 2026-11-11
+- **Cuando** registra el avance base sin `fecha`, una vez sin header y otra con `X-Zona-Horaria: America/Bogota`
+- **Entonces** el primero guarda `fecha` `2026-11-11` y el segundo `2026-11-10`, y la transacción de cada uno lleva la misma fecha que su avance
+
+#### CA-RF28-12 — Faltan datos o son inválidos: no se guarda ni el avance ni la transacción
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía el avance base sin `valor`, sin `cuotas` o sin `primerPago`, o con `valor` 0, `cuotas` 0, 61 o 12,5, `primerPago` `"pronto"` o `fecha` `"ayer"`
+- **Entonces** cada una responde `400` con un texto que empieza por el campo y no queda ningún avance ni ninguna transacción
+
+#### CA-RF28-13 — Campos no declarados se rechazan
+
+- **Dado** una tarjeta del usuario
+- **Cuando** el cuerpo incluye además `tipo`, `tarjetaId`, `usuarioId`, `tasaEAAplicada`, `cuotaUnicaSinInteres`, `metodoPago`, `clasificacionFlujo` o cualquier otro campo
+- **Entonces** responde `400` con un texto por el campo sobrante y no se guarda nada
+
+#### CA-RF28-14 — El avance en una tarjeta ajena o inexistente: 404 y nada se guarda
+
+- **Dado** una tarjeta del usuario B y un id válido inexistente
+- **Cuando** el usuario A registra el avance base en cada una
+- **Entonces** ambas responden `404` con `Tarjeta no encontrada` y no queda ningún avance ni ninguna transacción
+
+#### CA-RF28-15 — Repetir con la misma clave de idempotencia no duplica el avance ni la transacción
+
+- **Dado** un avance registrado con `Idempotency-Key` (`201`)
+- **Cuando** repite la misma petición con la misma clave
+- **Entonces** recibe la misma respuesta con `Idempotent-Replayed: true` y hay un solo avance y **una sola** transacción de dinero recibido; la misma clave con otro cuerpo responde `422` y no cambia nada
+
+#### CA-RF28-16 — Dos avances iguales con claves distintas son legítimos
+
+- **Dado** un avance registrado
+- **Cuando** envía el mismo avance con otra clave
+- **Entonces** responde `201`, hay dos avances y dos transacciones, cada una enlazada a su avance (eliminar uno no borra la del otro: CA-RF28-22)
+
+#### CA-RF28-17 — Si falla una de las dos partes, no queda ninguna a medias
+
+- **Dado** un entorno en el que el guardado de la transacción falla (y, aparte, uno en el que falla el guardado del avance)
+- **Cuando** registra el avance base
+- **Entonces** responde `500` y no queda ninguna compra ni ninguna transacción; al repetir la petición con la misma `Idempotency-Key` cuando el fallo desaparece, se registra una sola vez (la clave se liberó)
+
+
+#### CA-RF28-18 — El avance se gestiona desde la tarjeta, no desde `/transacciones`
+
+- **Dado** un avance registrado
+- **Cuando** el usuario lista `GET /transacciones`, y envía `PATCH` y `DELETE` a `/transacciones/<id de su transacción>`
+- **Entonces** el listado trae la transacción con `clasificacionFlujo` `DINERO_RECIBIDO`; el `PATCH` y el `DELETE` responden `409` y ni la transacción ni el avance cambian; el avance aparece en `GET /tarjetas/<visa>/compras` con `tipo` `AVANCE`
+
+#### CA-RF28-19 — Una sola cuota sin interés también aplica al avance
+
+- **Dado** una tarjeta con `cuotaUnicaSinInteres` `true` (0,2921)
+- **Cuando** registra un avance de $500.000 a 1 cuota y otro a 2 cuotas
+- **Entonces** el primero tiene `cuota` 500000 y el segundo una cuota mayor que 250.000 (con interés)
+
+#### Editar y eliminar un avance (`/tarjetas/:tarjetaId/compras/:id`)
+
+#### CA-RF28-20 — Editar el avance actualiza su transacción de dinero recibido
+
+- **Dado** el avance base registrado, con su transacción, y otro avance con su transacción
+- **Cuando** edita el primero con `{ "valor": 600000, "fecha": "2026-11-20", "descripcion": "Avance del 20" }`
+- **Entonces** responde `200` con esos valores y la cuota nueva de $600.000 a 6 cuotas; su transacción pasa a `monto` 600000, `fecha` 2026-11-20T00:00:00.000Z y la nueva descripción, sigue siendo `DINERO_RECIBIDO` con el mismo `tarjetaId`; sigue habiendo una transacción por avance y la del otro avance no cambia
+
+
+#### CA-RF28-21 — Editar solo las cuotas o el mes del primer pago no toca la transacción; `categoriaId` no se edita en un avance
+
+- **Dado** el avance base con su transacción
+- **Cuando** edita `{ "cuotas": 12, "primerPago": "2027-02" }` y luego `{ "categoriaId": <Hogar> }`
+- **Entonces** el primero responde `200` con `cuota` y `mesUltimoPago` (`"2028-01"`) nuevos y la transacción queda exactamente igual; el segundo responde `400` con un texto que empieza por `categoriaId` y nada cambia
+
+#### CA-RF28-22 — Eliminar el avance elimina su transacción, y solo la suya
+
+- **Dado** dos avances idénticos (mismo valor, fecha y descripción) en «Visa», cada uno con su transacción, y una transacción ordinaria y un pago de tarjeta del usuario
+- **Cuando** elimina uno con `DELETE`
+- **Entonces** responde `204`; queda un avance y una transacción de dinero recibido (la del otro avance), y la ordinaria y el pago siguen intactos; si elimina también el otro, `GET /reportes/periodo?mes=2026-11` vuelve a `dineroRecibido` 0
+
+
+#### CA-RF28-23 — Editar o eliminar un avance no deja nada a medias
+
+- **Dado** un avance con su transacción, y un entorno en que falla el guardado de uno de los dos cambios
+- **Cuando** edita `valor` o elimina el avance
+- **Entonces** responde `500` y el avance y su transacción quedan exactamente como estaban
+
+#### CA-RF28-24 — Al eliminar la cuenta no queda ningún avance, compra ni transacción del usuario
+
+- **Dado** un usuario con una compra y un avance (con su transacción) registrados por la API, y otro usuario con los suyos
+- **Cuando** el primero elimina su cuenta (`DELETE /usuarios/me`, RF-04)
+- **Entonces** no queda ninguna compra, avance ni transacción con su `usuarioId` y los del otro usuario siguen intactos (no se agrega ningún campo de usuario con otro nombre)
+
+#### CA-RF28-25 — El esquema guarda el enlace del avance con su transacción (modifica CA-RF26-02 de 5.2.1)
+
+- **Dado** el esquema `CompraCredito`
+- **Cuando** se inspecciona el campo `transaccionId` y se crea una compra sin él, con un id válido y con el texto `no-es-un-id`
+- **Entonces** es de tipo `ObjectId` con referencia a `Transaccion` (ADR-001), opcional y **sin valor por defecto**; sin él y con un id válido la validación no reporta errores (y sin él el documento no tiene el campo); con `no-es-un-id` falla con error solo en `transaccionId`; la lista de campos de CA-RF26-02 pasa a incluir `transaccionId`
+
+#### CA-RF28-26 — El avance guarda el id de su transacción y la compra no tiene ese campo
+
+- **Dado** un usuario con una compra y un avance registrados por la API
+- **Cuando** se leen los documentos guardados
+- **Entonces** el del avance tiene `transaccionId` igual al `_id` de su transacción de dinero recibido (la única `DINERO_RECIBIDO` de ese avance) y el de la compra no tiene `transaccionId`
+
+---
+
+### Documentación Swagger
+
+`src/common/swagger.spec.ts` descubre todos los controladores y fallará si alguna de las seis rutas del paquete o de sus DTO (de entrada, de salida y de query) no tiene etiqueta, resumen, descripción detallada, respuestas de error (400, 401, 404, 409, 422 y 500 según apliquen) y `description` + `example` en cada propiedad; además, cada `POST` que responde `201` (compras y avances) debe documentar el header `Idempotency-Key`. No es una prueba de este paquete, pero su cumplimiento forma parte de darlo por terminado. Además deben verse en `/api/docs`: la descripción general de la etiqueta `tarjetas` en `src/common/swagger.ts` (que hoy dice que «la cuota, la proyección y el total del mes llegan con las compras») actualizada con las reglas de compras y avances: la compra copia la tasa y la bandera de la tarjeta y editar la tarjeta no la recalcula; `cuota` y `mesUltimoPago` se calculan al responder y no se guardan; la compra no es una transacción y el avance sí (`DINERO_RECIBIDO`, no es ingreso propio); y que la tarjeta con compras responde `409` al eliminarla (la descripción del `DELETE /tarjetas/:id`, que hoy dice «cuando existan las compras…», debe corregirse). Los criterios CA-RF26-32..65, CA-RF27-34..38, CA-RF25-07..09, CA-RF33-27..40 y CA-RF28-06..24 y CA-RF28-26 fijan los códigos de error que deben documentarse.
+
+---
+
+## Índice de criterios del paquete 5.2.3
+
+- **RF-26:** CA-RF26-32 a CA-RF26-65. Registrar: 32 a 57 (forma y flujo de caja: 32 a 34; fecha y primer pago: 35 a 39; valor y descripción: 40 y 41; datos faltantes e inválidos: 42 a 49; tarjeta y categoría: 50 a 53; idempotencia: 54 a 56; sesión: 57); listar: 58 a 62; consultar: 63 y 64; categoría eliminada: 65.
+- **RF-27:** CA-RF27-34 a CA-RF27-38 (cuota y mes del último pago en las respuestas). La vista previa (antes CA-RF27-39 a 42) salió del paquete (D3).
+- **RF-25:** CA-RF25-07 a CA-RF25-09.
+- **RF-33:** CA-RF33-27 a CA-RF33-40. Editar compras: 27 a 34; eliminar compras y tarjetas con compras: 35 a 40.
+- **RF-28:** CA-RF28-06 a CA-RF28-26. Registrar: 06 a 19; editar y eliminar: 20 a 23; cuenta: 24; esquema y enlace: 25 y 26.
+- **Total:** 34 + 5 + 3 + 14 + 21 = 77 criterios.
+- **Modifica 5.2.1:** CA-RF26-02 (la lista de campos incluye `transaccionId`), el contrato de nombres de 5.2.1 y su decisión 14, y la prueba `src/tarjetas/compra-credito.schema.spec.ts`.
+
+### Criterios con «Pendiente de decisión»
+
+Ninguno. El desarrollador aprobó el 2026-11-13 las decisiones D1 a D19 (con D3 fuera del paquete y D12 opción A) y, con ellas, todos los criterios de esta sección.

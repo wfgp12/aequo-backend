@@ -93,6 +93,9 @@ describe('POST /transacciones (integración: guard de sesión real y MongoDB sim
       .useValue({})
       .overrideProvider(getModelToken(Transaccion.name))
       .useValue(guardadas)
+      // 5.2.3: CategoriasModule registra también el modelo CompraCredito (reasigna sus compras al eliminar una categoría).
+      .overrideProvider(getModelToken('CompraCredito'))
+      .useValue({})
       .overrideProvider(getModelToken(Categoria.name))
       .useValue(new CategoriasEnMemoria())
       // El módulo de idempotencia registra su modelo; estas pruebas no envían Idempotency-Key, así que no se usa.

@@ -192,6 +192,8 @@ let contadorDeModelos = 0;
 
 export class ColeccionEnMemoria {
   registros: Doc[] = [];
+  /** Si es `true`, toda escritura (crear, guardar, actualizar, borrar) falla como si la base no respondiera. */
+  fallaEscritura = false;
   /** Los campos que guarda el esquema (sin `__v`): lo que devuelve `toObject()`. */
   readonly campos: string[];
   private readonly modelo;
@@ -224,6 +226,10 @@ export class ColeccionEnMemoria {
     return recortados.map((registro) => (consulta.esLean ? { ...registro } : this.hidratar(registro)));
   }
 
+  private verificarEscritura(): void {
+    if (this.fallaEscritura) throw new Error('Fallo simulado de la base de datos');
+  }
+
   /** Lanza el error de clave duplicada si otro registro ya ocupa la misma clave de algún índice único. */
   private verificarUnicidad(registro: Doc, ignorar?: Doc): void {
     for (const { nombre, clave } of this.indicesUnicos) {
@@ -248,6 +254,7 @@ export class ColeccionEnMemoria {
 
   async create(datos: Doc): Promise<DocumentoHidratado> {
     await pausa();
+    this.verificarEscritura();
     const instancia = new this.modelo(datos);
     await instancia.validate();
     const ahora = new Date();
@@ -259,6 +266,7 @@ export class ColeccionEnMemoria {
 
   async guardar(doc: DocumentoHidratado): Promise<DocumentoHidratado> {
     await pausa();
+    this.verificarEscritura();
     const instancia = new this.modelo(doc.toObject());
     await instancia.validate();
     const registro = this.registros.find((r) => String(r._id) === String(doc._id));
@@ -293,6 +301,7 @@ export class ColeccionEnMemoria {
   findOneAndUpdate(filtro: Doc, actualizacion: Doc, opciones: Doc = {}) {
     return new Consulta<any>(async (consulta) => {
       await pausa();
+      this.verificarEscritura();
       const registro = this.registros.find((r) => coincide(r, filtro));
       if (!registro) return null;
       const antes = { ...registro };
@@ -309,6 +318,7 @@ export class ColeccionEnMemoria {
   updateOne(filtro: Doc, actualizacion: Doc) {
     return new Consulta<Doc>(async () => {
       await pausa();
+      this.verificarEscritura();
       const registro = this.registros.find((r) => coincide(r, filtro));
       if (!registro) return { acknowledged: true, matchedCount: 0, modifiedCount: 0 };
       this.aplicar(registro, actualizacion);
@@ -316,9 +326,27 @@ export class ColeccionEnMemoria {
     });
   }
 
+  /** Actualiza todos los registros que cumplan el filtro (con `$set` o con los campos directos). */
+  updateMany(filtro: Doc, actualizacion: Doc) {
+    return new Consulta<Doc>(async () => {
+      await pausa();
+      this.verificarEscritura();
+      const coincidencias = this.registros.filter((r) => coincide(r, filtro));
+      for (const registro of coincidencias) this.aplicar(registro, actualizacion);
+      return { acknowledged: true, matchedCount: coincidencias.length, modifiedCount: coincidencias.length };
+    });
+  }
+
+  async insertMany(lista: Doc[]): Promise<DocumentoHidratado[]> {
+    const creados: DocumentoHidratado[] = [];
+    for (const datos of lista) creados.push(await this.create(datos));
+    return creados;
+  }
+
   findOneAndDelete(filtro: Doc) {
     return new Consulta<any>(async (consulta) => {
       await pausa();
+      this.verificarEscritura();
       const registro = this.registros.find((r) => coincide(r, filtro));
       if (!registro) return null;
       this.registros = this.registros.filter((r) => r !== registro);
@@ -333,6 +361,7 @@ export class ColeccionEnMemoria {
   deleteOne(filtro: Doc) {
     return new Consulta<Doc>(async () => {
       await pausa();
+      this.verificarEscritura();
       const registro = this.registros.find((r) => coincide(r, filtro));
       if (registro) this.registros = this.registros.filter((r) => r !== registro);
       return { acknowledged: true, deletedCount: registro ? 1 : 0 };
@@ -342,6 +371,7 @@ export class ColeccionEnMemoria {
   deleteMany(filtro: Doc = {}) {
     return new Consulta<Doc>(async () => {
       await pausa();
+      this.verificarEscritura();
       const antes = this.registros.length;
       this.registros = this.registros.filter((r) => !coincide(r, filtro));
       return { acknowledged: true, deletedCount: antes - this.registros.length };

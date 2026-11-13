@@ -119,6 +119,9 @@ export function usarEntorno(): Entorno {
       // El progreso (4.3.1) lee transacciones: el módulo de ahorro importa el de reportes, que registra estos dos modelos.
       .overrideProvider(getModelToken(Transaccion.name))
       .useValue(new TransaccionesEnMemoria())
+      // 5.2.3: CategoriasModule registra también el modelo CompraCredito (reasigna sus compras al eliminar una categoría).
+      .overrideProvider(getModelToken('CompraCredito'))
+      .useValue({})
       .overrideProvider(getModelToken(Categoria.name))
       .useValue(new CategoriasEnMemoria())
       .overrideProvider(FIREBASE_AUTH)
