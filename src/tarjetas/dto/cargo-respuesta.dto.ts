@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { MarcasDeTiempoRespuestaDto } from './marcas-de-tiempo-respuesta.dto.js';
 
-export class CargoRespuestaDto {
+export class CargoRespuestaDto extends MarcasDeTiempoRespuestaDto {
   @ApiProperty({
     type: String,
     example: '66a0b3c4d5e6f70012ab34ce',
@@ -31,20 +32,4 @@ export class CargoRespuestaDto {
     description: 'Si el cargo está activo. Un cargo inactivo se conserva pero no se suma al total del mes.',
   })
   activo: boolean;
-
-  @ApiProperty({
-    type: String,
-    format: 'date-time',
-    example: '2026-11-02T15:30:00.000Z',
-    description: 'Fecha y hora (ISO 8601, UTC) en que se creó el cargo.',
-  })
-  creadaEn: string;
-
-  @ApiProperty({
-    type: String,
-    format: 'date-time',
-    example: '2026-11-20T09:10:00.000Z',
-    description: 'Fecha y hora (ISO 8601, UTC) de la última modificación.',
-  })
-  actualizadaEn: string;
 }

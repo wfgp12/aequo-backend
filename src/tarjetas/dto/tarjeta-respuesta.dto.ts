@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { MarcasDeTiempoRespuestaDto } from './marcas-de-tiempo-respuesta.dto.js';
 
-export class TarjetaRespuestaDto {
+export class TarjetaRespuestaDto extends MarcasDeTiempoRespuestaDto {
   @ApiProperty({
     type: String,
     example: '66a0b3c4d5e6f70012ab34cd',
@@ -28,20 +29,4 @@ export class TarjetaRespuestaDto {
     description: 'Si es true, una compra a una sola cuota en esta tarjeta no paga interés.',
   })
   cuotaUnicaSinInteres: boolean;
-
-  @ApiProperty({
-    type: String,
-    format: 'date-time',
-    example: '2026-11-02T15:30:00.000Z',
-    description: 'Fecha y hora (ISO 8601, UTC) en que se creó la tarjeta.',
-  })
-  creadaEn: string;
-
-  @ApiProperty({
-    type: String,
-    format: 'date-time',
-    example: '2026-11-20T09:10:00.000Z',
-    description: 'Fecha y hora (ISO 8601, UTC) de la última modificación.',
-  })
-  actualizadaEn: string;
 }

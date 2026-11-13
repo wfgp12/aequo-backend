@@ -1,41 +1,25 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Query } from '@nestjs/common';
 import {
-  ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
-  ApiInternalServerErrorResponse,
   ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
-  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { UsuarioActual } from '../auth/decoradores.js';
-import {
-  ErrorConflictoDto,
-  ErrorInternoDto,
-  ErrorSesionInvalidaDto,
-  ErrorTarjetaNoEncontradaDto,
-  ErrorValidacionDto,
-} from '../common/dto/error-respuesta.dto.js';
+import { ErrorConflictoDto, ErrorTarjetaNoEncontradaDto } from '../common/dto/error-respuesta.dto.js';
 import { Idempotente } from '../idempotencia/idempotente.decorator.js';
 import { ActualizarTarjetaDto } from './dto/actualizar-tarjeta.dto.js';
 import { CrearTarjetaDto } from './dto/crear-tarjeta.dto.js';
 import { ListarTarjetasQueryDto } from './dto/listar-tarjetas-query.dto.js';
 import { IdTarjetaParamDto } from './dto/parametros.dto.js';
 import { TarjetaRespuestaDto } from './dto/tarjeta-respuesta.dto.js';
+import { RespuestaInvalida, RespuestaLista, RespuestasComunes } from './respuestas-api.js';
 import { TarjetasService } from './tarjetas.service.js';
 
-export const SESION = {
-  type: ErrorSesionInvalidaDto,
-  description: 'Falta el token, es inválido, está vencido o manipulado. No se cambia nada.',
-};
-export const INTERNO = {
-  type: ErrorInternoDto,
-  description: 'Fallo inesperado, por ejemplo MongoDB no disponible. Reintentar más tarde.',
-};
 const NO_ENCONTRADA = { type: ErrorTarjetaNoEncontradaDto, description: 'La tarjeta no existe o es de otro usuario.' };
 const NOMBRE_REPETIDO = {
   type: ErrorConflictoDto,
@@ -61,20 +45,9 @@ Devuelve las tarjetas de crédito del usuario dueño de la sesión, ordenadas po
 - Este endpoint solo devuelve lo guardado; no calcula cuotas, proyecciones ni totales del mes.
 `.trim(),
   })
-  @ApiOkResponse({
-    description: 'Objeto con la lista de tarjetas en `items`, ordenadas por nombre.',
-    schema: {
-      type: 'object',
-      properties: { items: { type: 'array', items: { $ref: '#/components/schemas/TarjetaRespuestaDto' } } },
-      required: ['items'],
-    },
-  })
-  @ApiBadRequestResponse({
-    type: ErrorValidacionDto,
-    description: 'Se envió un parámetro de query: esta ruta no admite ninguno. `message` es un arreglo.',
-  })
-  @ApiUnauthorizedResponse(SESION)
-  @ApiInternalServerErrorResponse(INTERNO)
+  @RespuestaLista(TarjetaRespuestaDto, 'Objeto con la lista de tarjetas en `items`, ordenadas por nombre.')
+  @RespuestaInvalida('Se envió un parámetro de query: esta ruta no admite ninguno. `message` es un arreglo.')
+  @RespuestasComunes()
   async listar(
     @UsuarioActual() usuarioId: string,
     @Query() _consulta: ListarTarjetasQueryDto,
@@ -90,13 +63,9 @@ Devuelve una tarjeta propia por su id. **Requiere sesión:** header \`Authorizat
 `.trim(),
   })
   @ApiOkResponse({ type: TarjetaRespuestaDto, description: 'La tarjeta pedida.' })
-  @ApiBadRequestResponse({
-    type: ErrorValidacionDto,
-    description: 'El id no es un id válido. `message` es un arreglo.',
-  })
-  @ApiUnauthorizedResponse(SESION)
+  @RespuestaInvalida('El id no es un id válido. `message` es un arreglo.')
+  @RespuestasComunes()
   @ApiNotFoundResponse(NO_ENCONTRADA)
-  @ApiInternalServerErrorResponse(INTERNO)
   obtener(@UsuarioActual() usuarioId: string, @Param() { id }: IdTarjetaParamDto): Promise<TarjetaRespuestaDto> {
     return this.tarjetas.obtener(usuarioId, id);
   }
@@ -117,14 +86,11 @@ Crea una tarjeta de crédito para el usuario dueño de la sesión. **Requiere se
 `.trim(),
   })
   @ApiCreatedResponse({ type: TarjetaRespuestaDto, description: 'Tarjeta creada, tal como quedó guardada.' })
-  @ApiBadRequestResponse({
-    type: ErrorValidacionDto,
-    description:
-      'Falta un campo obligatorio, `nombre` está vacío o pasa de 50 caracteres, `tasaEA` no es un número entre 0 y 1, `cuotaUnicaSinInteres` no es lógico o se envió un campo desconocido. `message` es un arreglo con un texto por problema y no se guarda nada.',
-  })
-  @ApiUnauthorizedResponse(SESION)
+  @RespuestaInvalida(
+    'Falta un campo obligatorio, `nombre` está vacío o pasa de 50 caracteres, `tasaEA` no es un número entre 0 y 1, `cuotaUnicaSinInteres` no es lógico o se envió un campo desconocido. `message` es un arreglo con un texto por problema y no se guarda nada.',
+  )
+  @RespuestasComunes()
   @ApiConflictResponse(NOMBRE_REPETIDO)
-  @ApiInternalServerErrorResponse(INTERNO)
   crear(@UsuarioActual() usuarioId: string, @Body() dto: CrearTarjetaDto): Promise<TarjetaRespuestaDto> {
     return this.tarjetas.crear(usuarioId, dto);
   }
@@ -144,15 +110,12 @@ Modifica una tarjeta propia: renombrarla, **actualizar su tasa efectiva anual (R
 `.trim(),
   })
   @ApiOkResponse({ type: TarjetaRespuestaDto, description: 'La tarjeta completa, ya actualizada.' })
-  @ApiBadRequestResponse({
-    type: ErrorValidacionDto,
-    description:
-      'El id no es válido, no se envió ningún campo, algún campo es inválido o es null, `tasaEA` no es una fracción entre 0 y 1 o se envió un campo desconocido. `message` es un arreglo y no se cambia nada.',
-  })
-  @ApiUnauthorizedResponse(SESION)
+  @RespuestaInvalida(
+    'El id no es válido, no se envió ningún campo, algún campo es inválido o es null, `tasaEA` no es una fracción entre 0 y 1 o se envió un campo desconocido. `message` es un arreglo y no se cambia nada.',
+  )
+  @RespuestasComunes()
   @ApiNotFoundResponse(NO_ENCONTRADA)
   @ApiConflictResponse({ type: ErrorConflictoDto, description: 'Ya existe otra tarjeta del usuario con ese nombre.' })
-  @ApiInternalServerErrorResponse(INTERNO)
   actualizar(
     @UsuarioActual() usuarioId: string,
     @Param() { id }: IdTarjetaParamDto,
@@ -176,17 +139,13 @@ Elimina una tarjeta propia. **Requiere sesión:** header \`Authorization: Bearer
 `.trim(),
   })
   @ApiNoContentResponse({ description: 'Tarjeta y cargos eliminados. Sin cuerpo.' })
-  @ApiBadRequestResponse({
-    type: ErrorValidacionDto,
-    description: 'El id no es un id válido. `message` es un arreglo.',
-  })
-  @ApiUnauthorizedResponse(SESION)
+  @RespuestaInvalida('El id no es un id válido. `message` es un arreglo.')
+  @RespuestasComunes()
   @ApiNotFoundResponse(NO_ENCONTRADA)
   @ApiConflictResponse({
     type: ErrorConflictoDto,
     description: 'La tarjeta tiene pagos registrados: no se puede eliminar y no se borra nada.',
   })
-  @ApiInternalServerErrorResponse(INTERNO)
   eliminar(@UsuarioActual() usuarioId: string, @Param() { id }: IdTarjetaParamDto): Promise<void> {
     return this.tarjetas.eliminar(usuarioId, id);
   }

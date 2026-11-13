@@ -1,25 +1,22 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Query } from '@nestjs/common';
 import {
-  ApiBadRequestResponse,
   ApiBearerAuth,
   ApiCreatedResponse,
-  ApiInternalServerErrorResponse,
   ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
-  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { UsuarioActual } from '../auth/decoradores.js';
-import { ErrorCargoNoEncontradoDto, ErrorValidacionDto } from '../common/dto/error-respuesta.dto.js';
+import { ErrorCargoNoEncontradoDto } from '../common/dto/error-respuesta.dto.js';
 import { Idempotente } from '../idempotencia/idempotente.decorator.js';
 import { ActualizarCargoDto } from './dto/actualizar-cargo.dto.js';
 import { CargoRespuestaDto } from './dto/cargo-respuesta.dto.js';
 import { CrearCargoDto } from './dto/crear-cargo.dto.js';
 import { ListarCargosQueryDto } from './dto/listar-cargos-query.dto.js';
 import { IdCargoParamDto, TarjetaIdParamDto } from './dto/parametros.dto.js';
-import { INTERNO, SESION } from './tarjetas.controller.js';
+import { RespuestaInvalida, RespuestaLista, RespuestasComunes } from './respuestas-api.js';
 import { TarjetasService } from './tarjetas.service.js';
 
 const NO_ENCONTRADO = {
@@ -27,10 +24,7 @@ const NO_ENCONTRADO = {
   description:
     'La tarjeta de la ruta no existe o es de otro usuario (`Tarjeta no encontrada`), o el cargo no existe, es de otro usuario o es de otra tarjeta (`Cargo fijo no encontrado`).',
 };
-const IDS_INVALIDOS = {
-  type: ErrorValidacionDto,
-  description: '`tarjetaId` o `id` no son ids válidos. `message` es un arreglo.',
-};
+const IDS_INVALIDOS = '`tarjetaId` o `id` no son ids válidos. `message` es un arreglo.';
 
 @ApiTags('tarjetas')
 @ApiBearerAuth()
@@ -49,21 +43,10 @@ Devuelve los cargos fijos mensuales (suscripciones, seguros, cuota de manejo) de
 - No hay paginación. Una tarjeta sin cargos responde \`{ "items": [] }\`; una tarjeta ajena o inexistente responde \`404\`, no una lista vacía.
 `.trim(),
   })
-  @ApiOkResponse({
-    description: 'Objeto con la lista de cargos en `items`, del más antiguo al más reciente.',
-    schema: {
-      type: 'object',
-      properties: { items: { type: 'array', items: { $ref: '#/components/schemas/CargoRespuestaDto' } } },
-      required: ['items'],
-    },
-  })
-  @ApiBadRequestResponse({
-    type: ErrorValidacionDto,
-    description: '`tarjetaId` no es válido, `activo` no es `true` ni `false` o se envió un parámetro desconocido.',
-  })
-  @ApiUnauthorizedResponse(SESION)
+  @RespuestaLista(CargoRespuestaDto, 'Objeto con la lista de cargos en `items`, del más antiguo al más reciente.')
+  @RespuestaInvalida('`tarjetaId` no es válido, `activo` no es `true` ni `false` o se envió un parámetro desconocido.')
+  @RespuestasComunes()
   @ApiNotFoundResponse(NO_ENCONTRADO)
-  @ApiInternalServerErrorResponse(INTERNO)
   async listar(
     @UsuarioActual() usuarioId: string,
     @Param() { tarjetaId }: TarjetaIdParamDto,
@@ -80,10 +63,9 @@ Devuelve un cargo fijo de una tarjeta propia. **Requiere sesión:** header \`Aut
 `.trim(),
   })
   @ApiOkResponse({ type: CargoRespuestaDto, description: 'El cargo fijo pedido.' })
-  @ApiBadRequestResponse(IDS_INVALIDOS)
-  @ApiUnauthorizedResponse(SESION)
+  @RespuestaInvalida(IDS_INVALIDOS)
+  @RespuestasComunes()
   @ApiNotFoundResponse(NO_ENCONTRADO)
-  @ApiInternalServerErrorResponse(INTERNO)
   obtener(@UsuarioActual() usuarioId: string, @Param() { tarjetaId, id }: IdCargoParamDto): Promise<CargoRespuestaDto> {
     return this.tarjetas.obtenerCargo(usuarioId, tarjetaId, id);
   }
@@ -104,14 +86,11 @@ Crea un cargo fijo mensual en una tarjeta propia. **Requiere sesión:** header \
 `.trim(),
   })
   @ApiCreatedResponse({ type: CargoRespuestaDto, description: 'Cargo fijo creado, tal como quedó guardado.' })
-  @ApiBadRequestResponse({
-    type: ErrorValidacionDto,
-    description:
-      '`tarjetaId` no es válido, falta un campo obligatorio, `descripcion` está vacía o pasa de 100 caracteres, `valor` no es un número positivo, `activo` no es lógico o se envió un campo desconocido. `message` es un arreglo y no se guarda nada.',
-  })
-  @ApiUnauthorizedResponse(SESION)
+  @RespuestaInvalida(
+    '`tarjetaId` no es válido, falta un campo obligatorio, `descripcion` está vacía o pasa de 100 caracteres, `valor` no es un número positivo, `activo` no es lógico o se envió un campo desconocido. `message` es un arreglo y no se guarda nada.',
+  )
+  @RespuestasComunes()
   @ApiNotFoundResponse(NO_ENCONTRADO)
-  @ApiInternalServerErrorResponse(INTERNO)
   crear(
     @UsuarioActual() usuarioId: string,
     @Param() { tarjetaId }: TarjetaIdParamDto,
@@ -134,14 +113,11 @@ Modifica un cargo fijo propio: su descripción, su valor o su estado. **Requiere
 `.trim(),
   })
   @ApiOkResponse({ type: CargoRespuestaDto, description: 'El cargo completo, ya actualizado.' })
-  @ApiBadRequestResponse({
-    type: ErrorValidacionDto,
-    description:
-      'Un id no es válido, no se envió ningún campo, algún campo es inválido o es null, o se envió un campo desconocido (como `tarjetaId`). `message` es un arreglo y no se cambia nada.',
-  })
-  @ApiUnauthorizedResponse(SESION)
+  @RespuestaInvalida(
+    'Un id no es válido, no se envió ningún campo, algún campo es inválido o es null, o se envió un campo desconocido (como `tarjetaId`). `message` es un arreglo y no se cambia nada.',
+  )
+  @RespuestasComunes()
   @ApiNotFoundResponse(NO_ENCONTRADO)
-  @ApiInternalServerErrorResponse(INTERNO)
   actualizar(
     @UsuarioActual() usuarioId: string,
     @Param() { tarjetaId, id }: IdCargoParamDto,
@@ -161,10 +137,9 @@ Si el cargo no existe, es de otro usuario o de otra tarjeta que la de la ruta, r
 `.trim(),
   })
   @ApiNoContentResponse({ description: 'Cargo eliminado. Sin cuerpo.' })
-  @ApiBadRequestResponse(IDS_INVALIDOS)
-  @ApiUnauthorizedResponse(SESION)
+  @RespuestaInvalida(IDS_INVALIDOS)
+  @RespuestasComunes()
   @ApiNotFoundResponse(NO_ENCONTRADO)
-  @ApiInternalServerErrorResponse(INTERNO)
   eliminar(@UsuarioActual() usuarioId: string, @Param() { tarjetaId, id }: IdCargoParamDto): Promise<void> {
     return this.tarjetas.eliminarCargo(usuarioId, tarjetaId, id);
   }
