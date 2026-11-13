@@ -18,6 +18,7 @@ import { Usuario } from '../../src/usuarios/usuario.schema.js';
 import { CategoriasEnMemoria, TransaccionesEnMemoria } from '../ahorro/colecciones-memoria.js';
 import { OTRO_USUARIO_ID, SECRETO_JWT, USUARIO_ID } from '../comun/ayudas.js';
 import { type ColeccionEnMemoria, type Doc, IdempotenciasEnMemoria } from '../comun/coleccion-memoria.js';
+import { ComprasEnMemoria } from './colecciones-compras.js';
 import { CargosEnMemoria, TarjetasEnMemoria } from './colecciones-tarjetas.js';
 
 /**
@@ -29,6 +30,7 @@ import { CargosEnMemoria, TarjetasEnMemoria } from './colecciones-tarjetas.js';
  */
 
 export { IdempotenciasEnMemoria, OTRO_USUARIO_ID, SECRETO_JWT, USUARIO_ID };
+export { ComprasEnMemoria } from './colecciones-compras.js';
 export { CargosEnMemoria, TarjetasEnMemoria } from './colecciones-tarjetas.js';
 export { mensajeDeCampo, mensajeMencionaCampo } from '../comun/ayudas.js';
 
@@ -91,6 +93,8 @@ export interface Entorno {
   app: INestApplication;
   tarjetas: TarjetasEnMemoria;
   cargos: CargosEnMemoria;
+  /** Colección `comprascredito` (compras y avances); `TarjetasModule` registra su modelo desde 5.2.1. */
+  compras: ComprasEnMemoria;
   transacciones: TransaccionesEnMemoria;
   claves: IdempotenciasEnMemoria;
   /** Token del usuario A (USUARIO_ID). */
@@ -127,6 +131,7 @@ export function usarEntorno(): Entorno {
     vi.stubEnv('JWT_SECRET', SECRETO_JWT);
     const tarjetas = new TarjetasEnMemoria();
     const cargos = new CargosEnMemoria();
+    const compras = new ComprasEnMemoria();
     const transacciones = new TransaccionesEnMemoria();
     const claves = new IdempotenciasEnMemoria();
     const modulo = await Test.createTestingModule({
@@ -138,6 +143,9 @@ export function usarEntorno(): Entorno {
       .useValue(tarjetas)
       .overrideProvider(getModelToken(CargoRecurrente.name))
       .useValue(cargos)
+      // El token usa el nombre de la clase como texto: es el que registra TarjetasModule para CompraCredito.
+      .overrideProvider(getModelToken('CompraCredito'))
+      .useValue(compras)
       .overrideProvider(getModelToken(Transaccion.name))
       .useValue(transacciones)
       .overrideProvider(getModelToken(Idempotencia.name))
@@ -177,6 +185,7 @@ export function usarEntorno(): Entorno {
       app,
       tarjetas,
       cargos,
+      compras,
       transacciones,
       claves,
       token,
