@@ -869,3 +869,317 @@ La tasa se cambia con `PATCH /tarjetas/:id` (decisión D10). La validación es l
 
 `src/common/swagger.spec.ts` descubre todos los controladores y fallará si alguna de las diez rutas o de los DTO (de entrada y de salida) del paquete no tiene etiqueta, resumen, descripción detallada, respuestas de error (400, 401, 404, 409, 422 y 500 según apliquen) y `description` + `example` en cada propiedad; además, cada `POST` que responde `201` debe documentar el header `Idempotency-Key`. No es una prueba de este paquete, pero su cumplimiento forma parte de darlo por terminado. Los criterios CA-RF24-17..38, CA-RF25-01..06, CA-RF29-18..38 y CA-RF33-01..26 fijan los códigos de error que deben documentarse.
 
+---
+
+## Paquete 5.2.1 — Modelar entidad CompraCredito (RF-26, RF-28)
+
+Estado: Aprobado (2026-11-12)
+
+### Alcance
+
+Entra **solo la entidad** (esquema Mongoose) `CompraCredito`, colección `comprascredito`, y su registro en `TarjetasModule`. Una misma entidad guarda la compra a cuotas (RF-26) y el avance en efectivo (RF-28), que se distinguen por el campo `tipo`. **No** entran: el cálculo de la cuota y del mes del último pago (RF-27, paquete 5.2.2), el servicio y los endpoints para registrar, listar, editar y eliminar compras y avances, y la transacción de dinero recibido que acompaña al avance (5.2.3), la proyección, el total del mes y el saldo (RF-30, RF-31; 5.3.x) ni la regla de «una tarjeta con compras no se elimina» (la agrega 5.2.3 sobre D4 de 5.1.2). Que la tarjeta y la categoría existan y sean del usuario tampoco lo verifica el esquema: lo hará el servicio de 5.2.3 (decisión D13). Los criterios describen lo que el modelo acepta, lo que rechaza con error de validación y los índices que declara, de modo que se puedan probar sin endpoints (`validateSync()` sobre un modelo creado con el esquema y lectura de `schema.indexes()`, igual que `src/tarjetas/tarjeta-credito.schema.spec.ts`).
+
+Que la compra **copie** la tasa y la bandera de la tarjeta al registrarse lo hace el servicio de 5.2.3; aquí el esquema solo exige que ambos valores estén presentes y sean válidos (CA-RF26-24 a CA-RF26-27). La prueba de que editar la tarjeta después no cambia las compras ya registradas llega con 5.2.3.
+
+### Fuentes
+
+- RF-26 (Especificación de Requisitos): «registrar una compra con tarjeta de crédito indicando tarjeta, descripción, categoría, valor, número de cuotas y mes del primer pago».
+- RF-28: «registrar un avance en efectivo de una tarjeta, reflejado como dinero recibido y como compra diferida a cuotas». La parte «dinero recibido» es una transacción (5.2.3); la parte «compra diferida a cuotas» es esta entidad con `tipo` AVANCE.
+- RF-25 y D10 de 5.1.2: la tasa de la tarjeta es la vigente; cada compra copia la suya, y el desarrollador decidió que **también copia `cuotaUnicaSinInteres`**.
+- Modelo lógico v2.0 (Documento de Diseño Técnico, diagrama de la sección 2.2): `comprascredito` = `usuarioId` (FK, index), `tarjetaId` (FK, index), `categoriaId` (FK), `tipo: TipoCompra`, `descripcion: String`, `valor: Number`, `cuotas: Number`, `fecha: Date` (index), `primerPago: Date`, `tasaEAAplicada: Number`. Enumeración `TipoCompra` = `COMPRA`, `AVANCE` (diagrama de clases). El modelo lógico **no** trae `cuotaUnicaSinInteres` en esta colección: se agrega por la decisión de arriba (D11).
+- Documento de Diseño Técnico, sección 2.2: «La tasa de una compra con tarjeta se copia en `tasaEAAplicada` al registrarla, para que un cambio posterior de la tasa de la tarjeta no altere las cuotas ya pactadas»; los montos están en pesos colombianos y los cálculos usan precisión completa (RNF-11); las enumeraciones se validan en el esquema contra su conjunto cerrado. CU-14 (compra: tarjeta, cuotas, mes del primer pago, copia de la tasa vigente) y CU-15 (avance: valor, cuotas y mes del primer pago; el backend crea «la compra de tipo avance» y un ingreso clasificado como dinero recibido).
+- ADR-001: relaciones por `ObjectId`, nunca embebidas. ADR-014: una compra con tarjeta no es una transacción; cuenta por su categoría en el **mes de la compra** (de ahí `fecha`); la cuota usa `tasaEAAplicada`; con tasa 0 la cuota es `V/n`.
+- `CLAUDE.md`: el campo del usuario se llama exactamente `usuarioId` (así lo encuentra `AuthService.eliminarCuenta()`, RF-04); las entidades son anémicas; las enumeraciones cerradas se validan en el esquema; ejemplo de la hoja del promotor: $1.254.700 a 12 cuotas con E.A. 29,21 % → cuota de $119.802,13 (solo contexto: el cálculo es de 5.2.2 y no se prueba aquí).
+
+### Contrato de nombres (aprobado)
+
+- Entidad `CompraCredito` y esquema `CompraCreditoSchema`, en `src/tarjetas/compra-credito.schema.ts`; colección `comprascredito`; `timestamps: true`; el modelo se registra con el nombre de la clase (`CompraCredito`) en `TarjetasModule`.
+- Enumeración `TipoCompra` (`COMPRA`, `AVANCE`) en `src/tarjetas/compra-credito.enums.ts`, siguiendo `meta-ahorro.enums.ts` y `transaccion.enums.ts`. Las pruebas usan los textos `'COMPRA'` y `'AVANCE'`, no importan la enumeración, así no dependen de su archivo.
+- Campos, con los nombres del modelo lógico: `usuarioId`, `tarjetaId`, `categoriaId`, `tipo`, `descripcion`, `valor`, `cuotas`, `fecha`, `primerPago`, `tasaEAAplicada` y `cuotaUnicaSinInteres` (decisión D1).
+- `tarjetaId` referencia a `TarjetaCredito`; `categoriaId` referencia a `Categoria`; `usuarioId` referencia a `Usuario`.
+
+### Decisiones aprobadas por el desarrollador (2026-11-12)
+
+El desarrollador aprobó la opción recomendada en las 14 decisiones; los criterios de abajo ya la reflejan. Ninguna de estas reglas está definida en un RF ni en un ADR; cada una cita su respaldo o dice que no lo hay.
+
+1. **Nombres de los campos** (todos los criterios). Recomendado: los del modelo lógico: `cuotas` (no `numeroCuotas`), `fecha` (de la compra), `primerPago` (mes del primer pago) y `tipo`. Fuente: modelo lógico y diagrama de clases. Alternativa: nombres más largos (`numeroCuotas`, `mesPrimerPago`), que obligarían a corregir el Documento de Diseño Técnico.
+2. **Archivos, clase y enumeración** (contrato de nombres). Recomendado: los del contrato de arriba, junto al resto de entidades del módulo. Fuente: convención del repo (5.1.1); los nombres de archivo no están en ningún documento.
+3. **`tipo`** (CA-RF26-01, CA-RF28-01 a CA-RF28-04). Recomendado: enumeración cerrada `COMPRA` / `AVANCE` (diagrama de clases), opcional con valor por defecto `COMPRA` (lo más frecuente, CU-14; el servicio de avances fija `AVANCE`). `null` se rechaza. Alternativa: obligatorio, sin valor por defecto, para forzar a quien cree el documento a elegirlo.
+4. **`categoriaId` también en el avance** (CA-RF26-08, CA-RF26-09, CA-RF28-05). Recomendado: obligatoria siempre, avance incluido. Fuente: el modelo lógico muestra `categoriaId` como FK sin el «opcional» que sí lleva `tarjetaId` en `transacciones`. Ojo: RF-28 y CU-15 no piden categoría para el avance (solo valor, cuotas y mes del primer pago), así que 5.2.3 tendrá que decidir cómo se llena (por ejemplo, con la categoría de respaldo «Otros»). Alternativas: obligatoria solo en `COMPRA` y `null` permitido en `AVANCE` (esquema con una regla cruzada) u opcional siempre.
+5. **`descripcion`** (CA-RF26-10 a CA-RF26-12). Recomendado: obligatoria (RF-26 la lista), con recorte de espacios, hasta 200 caracteres, el mismo tope que la descripción de las transacciones (el egreso con tarjeta se captura en el mismo formulario). Sin fuente para el tope; alternativa: 100, como el cargo fijo.
+6. **`valor`** (CA-RF26-13 a CA-RF26-15). Recomendado: mayor que 0, sin tope superior y con decimales (igual que `monto` de las transacciones y `valor` del cargo). Sin fuente explícita para el rango.
+7. **`cuotas`** (CA-RF26-16 a CA-RF26-18). Recomendado: entero entre 1 y 60 inclusive. Fuente: RF-26 y el modelo lógico solo dicen «número de cuotas»; **no hay fuente para el tope**: 60 es el máximo habitual de las tarjetas colombianas y evita proyecciones absurdas (RF-31 proyecta hasta la última cuota). Alternativas: otro tope (por ejemplo 36 o 120) o ninguno (solo entero ≥ 1).
+8. **`fecha`** (CA-RF26-19, CA-RF26-20). Recomendado: obligatoria, sin valor por defecto, guarda el instante tal cual llega, y acepta fechas pasadas, presentes y futuras (como RF-09 para los movimientos). Fuente: el modelo lógico la marca con índice y ADR-014 cuenta la compra en el mes de la compra; RF-26 no la lista como dato del usuario, así que 5.2.3 puede ponerle «hoy» por defecto. Alternativa: el esquema le da «ahora» por defecto.
+9. **`primerPago`** (CA-RF26-21 a CA-RF26-23). Recomendado: obligatorio y normalizado al **día 1 a las 00:00 UTC de su mes**, como el `periodo` de las metas de ahorro; RF-26 y CU-14 hablan del «mes del primer pago», no de un día. Así el mes del último pago (5.2.2) es una suma de meses sin problemas de fin de mes (31 de enero + 1 mes). El esquema **no** compara `primerPago` con `fecha` (puede ser el mismo mes, el siguiente o, si el usuario transcribe una compra ya en curso, uno anterior). Alternativas: guardar el día tal cual, o exigir que no sea anterior al mes de la compra.
+10. **`tasaEAAplicada`** (CA-RF26-24, CA-RF26-25). Recomendado: obligatoria, fracción entre 0 y 1 inclusive, 0 permitido; exactamente la misma regla que `tasaEA` de la tarjeta (CA-RF24-10 a CA-RF24-13). Fuente: Diseño Técnico 2.2 (se copia al registrar) y la decisión de guardarla como fracción (29,21 % = 0,2921).
+11. **`cuotaUnicaSinInteres` copiada** (CA-RF26-26, CA-RF26-27). Recomendado: obligatoria y **sin** valor por defecto. Por qué: si el servicio de 5.2.3 olvidara copiarla, un valor por defecto `false` produciría en silencio una cuota con interés donde correspondía sin interés; sin valor por defecto el olvido falla al guardar. Fuente: decisión del desarrollador (nota de D10 en 5.1.2). El Documento de Diseño Técnico (modelo lógico) debe actualizarse con este campo. Alternativa: opcional con `false` por defecto, como en la tarjeta.
+12. **Índices** (CA-RF26-28, CA-RF26-29). Recomendado: un índice compuesto `{ usuarioId: 1, fecha: -1 }` (gasto por categoría del mes, igual que `transacciones`) y uno por `tarjetaId` (proyección y total del mes de una tarjeta, RF-30 y RF-31). Fuente: el modelo lógico marca `usuarioId`, `tarjetaId` y `fecha` con índice; agruparlos así es decisión de rendimiento, sin fuente. Ninguna restricción de unicidad (dos compras iguales son legítimas). Alternativa: tres índices simples, tal como los dibuja el modelo lógico.
+13. **Existencia y dueño de `tarjetaId` y `categoriaId`** (CA-RF26-07, CA-RF26-09). Recomendado: el esquema solo exige un `ObjectId`; que la tarjeta y la categoría existan y sean del usuario (404 en caso contrario, como CA-RF27-04 de la plantilla) lo comprueba el servicio de 5.2.3. Igual que D7 de 5.1.1.
+14. **Campos que el modelo lógico no trae** (CA-RF26-02). Recomendado: no agregar cuota, interés, saldo, mes del último pago (todo eso se calcula, RNF-11), estado de pagada, ni un `transaccionId` que enlace el avance con su transacción de dinero recibido; ningún RF lo pide. Si 5.2.3 necesita ese enlace para editar o eliminar un avance, se pide como cambio aparte (ADR-003).
+
+---
+
+## RF-26 — Registrar compras con tarjeta de crédito
+
+### Forma del documento
+
+#### CA-RF26-01 — Una compra válida se acepta y conserva sus valores
+
+- **Dado** un `usuarioId`, un `tarjetaId` y un `categoriaId` válidos
+- **Cuando** se crea una compra con `descripcion` «Televisor», `valor` 1254700, `cuotas` 12, `fecha` 2026-11-10T15:00:00.000Z, `primerPago` 2026-12-01T00:00:00.000Z, `tasaEAAplicada` 0,2921 y `cuotaUnicaSinInteres` `false`, sin indicar `tipo`
+- **Entonces** la validación no reporta errores y el documento conserva esos valores (la tasa exactamente `0,2921`, el valor sin redondear) y `tipo` es `COMPRA` (caso de referencia de la hoja del promotor: cuota $119.802,13, que calcula 5.2.2)
+
+#### CA-RF26-02 — El documento guarda solo los campos del modelo: nada calculado
+
+- **Dado** el esquema de la compra con tarjeta
+- **Cuando** se listan sus campos
+- **Entonces** son exactamente `usuarioId`, `tarjetaId`, `categoriaId`, `tipo`, `descripcion`, `valor`, `cuotas`, `fecha`, `primerPago`, `tasaEAAplicada` y `cuotaUnicaSinInteres` (más `_id`, `__v`, `createdAt` y `updatedAt`); **no** existe ningún campo de cuota, interés, saldo, mes del último pago, estado de pagada ni de transacción asociada, porque todo eso se calcula (RNF-11) y la entidad es anémica
+
+#### CA-RF26-03 — La colección se llama `comprascredito` y registra fechas de creación y modificación
+
+- **Dado** el esquema de la compra con tarjeta
+- **Cuando** se leen sus opciones
+- **Entonces** la colección es `comprascredito` y `timestamps` está activo
+
+### Usuario, tarjeta y categoría
+
+#### CA-RF26-04 — `usuarioId` es una referencia a usuario (ObjectId), llamada exactamente así
+
+- **Dado** el esquema de la compra con tarjeta
+- **Cuando** se inspecciona el campo `usuarioId`
+- **Entonces** es de tipo `ObjectId` con referencia a `Usuario` (ADR-001) y se llama exactamente `usuarioId`, de modo que `AuthService.eliminarCuenta()` encuentre y borre sola esta colección (RF-04)
+
+#### CA-RF26-05 — Sin `usuarioId`, o con uno que no es un id, la compra se rechaza
+
+- **Dado** una compra con todos los demás campos válidos
+- **Cuando** `usuarioId` está ausente, es `null`, o es el texto `no-es-un-id`
+- **Entonces** la validación falla con error solo en `usuarioId` (no hay compras del sistema: siempre pertenece a un usuario)
+
+#### CA-RF26-06 — `tarjetaId` es una referencia a la tarjeta (ObjectId)
+
+- **Dado** el esquema de la compra con tarjeta
+- **Cuando** se inspecciona el campo `tarjetaId`
+- **Entonces** es de tipo `ObjectId` con referencia a `TarjetaCredito` (ADR-001: la compra no embebe la tarjeta)
+
+#### CA-RF26-07 — Sin `tarjetaId`, o con uno que no es un id, la compra se rechaza
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `tarjetaId` está ausente, es `null`, o es el texto `no-es-un-id`
+- **Entonces** la validación falla con error solo en `tarjetaId` (una compra siempre pertenece a una tarjeta; que esa tarjeta exista y sea del usuario lo verifica el servicio, no el esquema)
+
+#### CA-RF26-08 — `categoriaId` es una referencia a la categoría (ObjectId)
+
+- **Dado** el esquema de la compra con tarjeta
+- **Cuando** se inspecciona el campo `categoriaId`
+- **Entonces** es de tipo `ObjectId` con referencia a `Categoria` (ADR-001)
+
+#### CA-RF26-09 — Sin `categoriaId`, o con uno que no es un id, la compra se rechaza
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `categoriaId` está ausente, es `null`, o es el texto `no-es-un-id`
+- **Entonces** la validación falla con error solo en `categoriaId` (la compra cuenta por su categoría en el mes de la compra, ADR-014; que la categoría exista y sea visible para el usuario lo verifica el servicio)
+
+> Pendiente de decisión: D4 propone que la categoría sea obligatoria también en el avance, aunque RF-28 y CU-15 no la piden.
+
+### Descripción
+
+#### CA-RF26-10 — Sin descripción se rechaza
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `descripcion` está ausente, es `null`, es un texto vacío o solo tiene espacios (`"   "`)
+- **Entonces** la validación falla con error solo en `descripcion`
+
+#### CA-RF26-11 — La descripción se guarda sin espacios sobrantes
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `descripcion` es `"  Televisor  "`
+- **Entonces** la validación no reporta errores y la descripción guardada es `"Televisor"`
+
+#### CA-RF26-12 — Longitud máxima de la descripción
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `descripcion` tiene 200 caracteres, y en otra compra tiene 201
+- **Entonces** la de 200 pasa la validación y la de 201 falla con error solo en `descripcion`
+
+> Pendiente de decisión: el tope de 200 caracteres no está en ningún RF (D5).
+
+### Valor
+
+#### CA-RF26-13 — Sin valor, o con un valor que no es número, se rechaza
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `valor` está ausente, es `null`, o es el texto `caro`
+- **Entonces** la validación falla con error solo en `valor`
+
+#### CA-RF26-14 — Un valor en cero o negativo se rechaza
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `valor` es 0 o −1254700
+- **Entonces** la validación falla con error solo en `valor` (una compra sin valor no genera cuotas)
+
+#### CA-RF26-15 — Un valor positivo se acepta, sin tope superior y sin redondear
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `valor` es 1, 1254700, 1500000,5 o 999999999
+- **Entonces** todos pasan la validación y conservan su valor sin redondear (RNF-11)
+
+### Número de cuotas
+
+#### CA-RF26-16 — Sin número de cuotas, o con uno que no es número, se rechaza
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `cuotas` está ausente, es `null`, o es el texto `doce`
+- **Entonces** la validación falla con error solo en `cuotas`
+
+#### CA-RF26-17 — Un número entero de cuotas dentro del rango se acepta
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `cuotas` es 1, 12 o 60
+- **Entonces** las tres pasan la validación y conservan su valor (una sola cuota es válida: es el caso de la tarjeta con `cuotaUnicaSinInteres`)
+
+#### CA-RF26-18 — Cuotas en cero, negativas, no enteras o por encima del máximo se rechazan
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `cuotas` es 0, −1, 12,5 o 61
+- **Entonces** cada una falla con error solo en `cuotas`
+
+> Pendiente de decisión: el máximo de 60 cuotas no está en ningún RF ni ADR (D7).
+
+### Fechas
+
+#### CA-RF26-19 — Sin fecha de compra, o con una que no es fecha, se rechaza
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `fecha` está ausente, es `null`, o es el texto `ayer`
+- **Entonces** la validación falla con error solo en `fecha`
+
+#### CA-RF26-20 — La fecha de compra se guarda tal cual y admite pasado, presente y futuro
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `fecha` es 2026-11-10T15:00:00.000Z, 2020-01-31T23:59:59.000Z (pasada y de fin de mes) o 2030-06-15T00:00:00.000Z (futura)
+- **Entonces** las tres pasan la validación y conservan exactamente ese instante, sin llevarla al día 1 ni a medianoche (la compra cuenta en el mes de esa fecha, ADR-014)
+
+#### CA-RF26-21 — Sin mes del primer pago, o con uno que no es fecha, se rechaza
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `primerPago` está ausente, es `null`, o es el texto `pronto`
+- **Entonces** la validación falla con error solo en `primerPago`
+
+#### CA-RF26-22 — El mes del primer pago se guarda como el día 1 de su mes a las 00:00 UTC
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `primerPago` es 2026-12-15T10:30:00.000Z, 2026-01-31T23:59:59.000Z, 2026-02-28T12:00:00.000Z, 2026-12-01T00:00:00.000Z o el texto `2026-03-20`
+- **Entonces** todas pasan la validación y se guardan como 2026-12-01, 2026-01-01, 2026-02-01, 2026-12-01 y 2026-03-01, cada una a las 00:00:00.000 UTC (el mes del último pago de 5.2.2 se obtiene sumando meses a un día 1, sin problemas de fin de mes)
+
+#### CA-RF26-23 — El esquema no compara el mes del primer pago con la fecha de compra
+
+- **Dado** una compra con `fecha` 2026-11-10T15:00:00.000Z
+- **Cuando** `primerPago` es noviembre de 2026 (el mismo mes), diciembre de 2026 (el siguiente) o octubre de 2026 (anterior)
+- **Entonces** las tres pasan la validación (decisión D9: si el servicio quiere restringirlo, lo decide 5.2.3)
+
+> Pendiente de decisión: ningún RF define si el primer pago puede ser anterior al mes de la compra (D9).
+
+### Tasa y bandera copiadas de la tarjeta
+
+#### CA-RF26-24 — Sin tasa aplicada, o con una que no es número, se rechaza
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `tasaEAAplicada` está ausente, es `null`, o es el texto `alta`
+- **Entonces** la validación falla con error solo en `tasaEAAplicada` (sin la tasa copiada no se puede calcular la cuota; la tasa 0 no es «sin tasa»)
+
+#### CA-RF26-25 — Rango de la tasa aplicada: de 0 a 1, ambos incluidos
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `tasaEAAplicada` es 0, 0,0001, 0,2921 o 1, y en otras compras es −0,01, 1,0001 o 29,21
+- **Entonces** las cuatro primeras pasan la validación y conservan su valor sin redondear (con tasa 0 la cuota es `V/n`, ADR-014); las otras fallan con error solo en `tasaEAAplicada` (negativa, mayor que 100 % E.A., o un porcentaje enviado donde se esperaba una fracción)
+
+#### CA-RF26-26 — Sin la bandera `cuotaUnicaSinInteres` copiada, o con una que no es lógica, se rechaza
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `cuotaUnicaSinInteres` está ausente, es `null`, o es el texto `quizás`
+- **Entonces** la validación falla con error solo en `cuotaUnicaSinInteres` (no hay valor por defecto: si el servicio no copia la bandera de la tarjeta, la compra no se guarda en lugar de calcularse mal)
+
+#### CA-RF26-27 — La bandera acepta `true` y `false` y los conserva
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `cuotaUnicaSinInteres` es `true`, o `false`
+- **Entonces** ambas pasan la validación y conservan su valor (`false` no se confunde con «ausente»)
+
+### Índices
+
+#### CA-RF26-28 — Hay índices por usuario con fecha y por tarjeta
+
+- **Dado** el esquema de la compra con tarjeta
+- **Cuando** se leen sus índices
+- **Entonces** existe un índice cuya primera clave es `usuarioId` e incluye `fecha` (el gasto por categoría de un mes consulta las compras del usuario por fecha, ADR-014) y otro cuya primera clave es `tarjetaId` (el total del mes y la proyección de una tarjeta suman sus compras, RF-30 y RF-31)
+
+#### CA-RF26-29 — Dos compras iguales son legítimas
+
+- **Dado** el esquema de la compra con tarjeta
+- **Cuando** se leen sus índices
+- **Entonces** ninguno es único: el modelo no impide dos compras con la misma descripción, valor y fecha en la misma tarjeta (no se deduplica por contenido)
+
+### Módulo y eliminación de la cuenta
+
+#### CA-RF26-30 — `TarjetasModule` registra el modelo `CompraCredito`
+
+- **Dado** `TarjetasModule` compilado en una prueba (con los modelos reemplazados por colecciones en memoria)
+- **Cuando** se pide el proveedor `getModelToken('CompraCredito')`
+- **Entonces** existe (el nombre del modelo es el de la clase, como el de `TarjetaCredito` y `CargoRecurrente`), de modo que el servicio de 5.2.3 pueda inyectarlo y `AuthService.eliminarCuenta()` lo descubra entre los modelos registrados
+
+#### CA-RF26-31 — Al eliminar la cuenta se borran sus compras
+
+- **Dado** un usuario con compras (una `COMPRA` y un `AVANCE`) y otro usuario con compras
+- **Cuando** el primero elimina su cuenta (RF-04, `DELETE /usuarios/me`)
+- **Entonces** no queda ninguna compra con su `usuarioId` y las del otro usuario siguen intactas
+
+---
+
+## RF-28 — Registrar avances en efectivo de una tarjeta
+
+El avance se guarda en la misma colección que la compra, con `tipo` `AVANCE`; todo lo que exige una compra lo exige un avance (CA-RF26-01 a CA-RF26-27). Su transacción de dinero recibido (clasificación `DINERO_RECIBIDO`, con `tarjetaId`) la crea el servicio de 5.2.3 y no se cubre aquí.
+
+#### CA-RF28-01 — Un avance válido se acepta y conserva su tipo
+
+- **Dado** un `usuarioId`, un `tarjetaId` y un `categoriaId` válidos
+- **Cuando** se crea una compra con `tipo` `AVANCE`, `descripcion` «Avance en efectivo», `valor` 500000, `cuotas` 6, `fecha` 2026-11-10T15:00:00.000Z, `primerPago` 2026-12-01T00:00:00.000Z, `tasaEAAplicada` 0,2921 y `cuotaUnicaSinInteres` `false`
+- **Entonces** la validación no reporta errores y el documento conserva `tipo` `AVANCE` y los demás valores
+
+#### CA-RF28-02 — El tipo vale `COMPRA` si no se indica
+
+- **Dado** una compra con los demás campos válidos y sin `tipo`
+- **Cuando** se crea
+- **Entonces** la validación no reporta errores y `tipo` es `COMPRA`
+
+#### CA-RF28-03 — El tipo solo acepta `COMPRA` y `AVANCE`
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `tipo` es `PRESTAMO`, `avance` (en minúsculas), un texto vacío, `null` o el número 1
+- **Entonces** cada una falla con error solo en `tipo` (enumeración cerrada validada en el esquema, como `TipoMeta` y `ClasificacionFlujo`)
+
+#### CA-RF28-04 — La enumeración tiene exactamente dos valores
+
+- **Dado** el esquema de la compra con tarjeta
+- **Cuando** se leen los valores permitidos del campo `tipo`
+- **Entonces** son exactamente `COMPRA` y `AVANCE`
+
+#### CA-RF28-05 — Un avance exige los mismos datos que una compra
+
+- **Dado** una compra con `tipo` `AVANCE` y los demás campos válidos
+- **Cuando** le falta `categoriaId`, o `cuotas`, o `primerPago`, o `tasaEAAplicada`, o `cuotaUnicaSinInteres` (cada caso por separado)
+- **Entonces** cada una falla con error solo en el campo que falta (el avance es una compra diferida a cuotas y se proyecta igual que ella, RF-28)
+
+> Pendiente de decisión: que el avance lleve categoría obligatoria no lo dicen RF-28 ni CU-15 (D4).
+
+---
+
+## Índice de criterios del paquete 5.2.1
+
+- **RF-26:** CA-RF26-01 a CA-RF26-31. Forma del documento: 01 a 03; usuario, tarjeta y categoría: 04 a 09; descripción: 10 a 12; valor: 13 a 15; cuotas: 16 a 18; fechas: 19 a 23; tasa y bandera copiadas: 24 a 27; índices: 28 y 29; módulo y eliminación de la cuenta: 30 y 31.
+- **RF-28:** CA-RF28-01 a CA-RF28-05.
+- **Total:** 36 criterios.
+
+### Criterios con «Pendiente de decisión»
+
+CA-RF26-09 y CA-RF28-05 (D4), CA-RF26-12 (D5), CA-RF26-18 (D7) y CA-RF26-23 (D9). Las 14 decisiones quedaron aprobadas el 2026-11-12.
+
