@@ -1,19 +1,9 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { type HydratedDocument, Schema as MongooseSchema, type Types } from 'mongoose';
+import { primerDiaDelMes } from '../common/primer-dia-del-mes.js';
 import { TipoMeta } from './meta-ahorro.enums.js';
 
 const ObjectId = MongooseSchema.Types.ObjectId;
-
-/**
- * Lleva la fecha al día 1 de su mes a las 00:00 UTC. Lo que no sea una fecha válida se devuelve intacto
- * para que Mongoose falle la conversión solo en `periodo`.
- */
-function primerDiaDelMes(valor: unknown): unknown {
-  if (valor === null || valor === undefined) return valor;
-  const fecha = new Date(valor as string | number | Date);
-  if (Number.isNaN(fecha.getTime())) return valor;
-  return new Date(Date.UTC(fecha.getUTCFullYear(), fecha.getUTCMonth(), 1));
-}
 
 /**
  * Entidad anémica: solo datos. Es una instancia mensual (una por usuario y periodo), no una meta única:
