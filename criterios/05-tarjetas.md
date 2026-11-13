@@ -1183,3 +1183,282 @@ El avance se guarda en la misma colección que la compra, con `tipo` `AVANCE`; t
 
 CA-RF26-09 y CA-RF28-05 (D4), CA-RF26-12 (D5), CA-RF26-18 (D7) y CA-RF26-23 (D9). Las 14 decisiones quedaron aprobadas el 2026-11-12.
 
+---
+
+## Paquete 5.2.2 — Calcular cuota de una compra a cuotas con tasa efectiva anual, TDD (RF-27)
+
+Estado: Aprobado (2026-11-12)
+
+### Alcance
+
+Entra **solo el cálculo**, sin endpoints, sin base de datos y sin servicio de Nest: (1) la conversión de la tasa efectiva anual a tasa mensual equivalente, (2) la cuota mensual fija de una compra (compra a cuotas o avance, RF-26 y RF-28) y (3) el mes del último pago (RF-27: «el valor estimado de cada cuota … y el mes del último pago»). Es el cálculo que reutilizarán el registro de compras (5.2.3, para mostrar la cuota antes de guardar, CU-14 paso 3) y la proyección y el pago de la tarjeta (5.3.1 y 5.3.2). **No** entran: el CRUD de compras y avances ni la vista previa por HTTP (5.2.3), el total del mes, el saldo y la proyección por mes (RF-30 y RF-31, 5.3.1), el pago de la tarjeta (5.3.2), el interés total ni un cronograma de cuotas (decisión D7) ni la comprobación de que la tarjeta o la categoría existan (la hace el servicio de 5.2.3). Del ejemplo de la plantilla, CA-RF27-03 (el cambio de tasa no recalcula compras anteriores) solo se cubre aquí en lo que corresponde a una función pura (CA-RF27-19: usa la tasa de la compra y no otra); la prueba con compras guardadas y tarjetas editadas llega en 5.2.3, y CA-RF27-04 (404 por tarjeta ajena) es de 5.2.3.
+
+### Fuentes
+
+- RF-27 (Especificación de Requisitos): «visualizar el valor estimado de cada cuota de una compra con tarjeta, calculado con la tasa mensual equivalente de la tarjeta, y el mes del último pago». «De la tarjeta» se entiende como la tasa **copiada en la compra** (`tasaEAAplicada`), no la actual de la tarjeta: lo fijan el Documento de Diseño Técnico (sección 2.2 y 4.3: «la tasa vigente se copia en la compra») y ADR-014; RF-25 lo confirma (la nueva tasa aplica solo a compras posteriores).
+- ADR-014: «La tasa mensual se calcula como (1 + EA)^(1/12) − 1 y la cuota como V · i / (1 − (1 + i)^(−n)), o V / n cuando la tasa es cero». Los cálculos usan precisión completa y se redondean al peso solo al mostrar. `CLAUDE.md` (sección 5, «Cuota de una compra»): añade que la cuota es `V / n` también cuando es **una sola cuota** en una tarjeta con `cuotaUnicaSinInteres`, y que la cuota **no se guarda**: se calcula (RNF-11).
+- Documento de Diseño Técnico, CU-14: paso 3 «el sistema calcula la cuota con la tasa mensual equivalente y muestra la cuota y el mes del último pago»; alternativo 2a «una sola cuota en una tarjeta marcada sin intereses: la cuota es igual al valor de la compra». El diagrama de servicios lista `TarjetasService.calcularCuota(compra)`.
+- RNF-11 (Especificación de Requisitos): los cálculos se hacen en el backend con precisión completa y se redondea al peso únicamente al presentar.
+- Diccionario de la EDT, 5.2.2: «Escribir primero las pruebas con los casos de referencia de la hoja de cálculo del promotor y luego implementar la conversión de tasa E.A. a mensual y el cálculo de la cuota fija, incluida la cuota única sin intereses»; aceptación: «coinciden al peso con los casos de referencia (por ejemplo, $1.254.700 a 12 cuotas con E.A. 29,21 % da una cuota de $119.802)».
+- Esquema `CompraCredito` (5.2.1, ya en `develop`): `valor` mayor que 0; `cuotas` entero de 1 a 60 (D7, sin fuente para el tope); `tasaEAAplicada` fracción de 0 a 1 (0,2921 = 29,21 %); `cuotaUnicaSinInteres` lógica, obligatoria y sin valor por defecto; `primerPago` siempre el día 1 a las 00:00 UTC de su mes. El mes del último pago se obtiene sumando meses a ese día 1, sin problemas de fin de mes (CA-RF26-22).
+- Convención del repo para funciones puras de calendario (`src/reportes/periodo.ts`, `src/reportes/rango-meses.ts`, `src/common/primer-dia-del-mes.ts`): meses y fechas en UTC, aritmética por índice de mes, sin dependencia de la base.
+
+### Valores de referencia y cómo se obtuvieron
+
+- **De la hoja del promotor:** $1.254.700 a 12 cuotas con E.A. 29,21 % → cuota de $119.802,13 (a 2 decimales; el Diccionario de la EDT lo cita como $119.802 «al peso»). Es el **único** valor que viene de la hoja: los documentos no incluyen la hoja de Numbers ni otros casos.
+- **Calculados por el tester** con la fórmula de ADR-014 en doble precisión (Node) y, para 13 de los casos ($1.254.700 a 12, 24, 36 y 60 cuotas; $500.000 a 3 y 6; $100.000 a 2; $1 a 12; $0,01 a 3; $999.999.999 a 60 y a 12 con tasa 1; $1.000.000 a 12 con tasas 0,2 y 1; el resto, como $1.254.700 a 6 cuotas, solo con la fórmula), **comprobados con un segundo método independiente**: una búsqueda binaria de la cuota que deja en cero el saldo después de `n` pagos (`saldo = saldo · (1 + i) − cuota`); ambos coinciden con diferencia relativa menor que 1e-14. El caso de 12 cuotas del promotor coincide además con el cálculo directo `119.802,1331718775`. El caso de 1 % mensual coincide con la tabla de amortización estándar de un préstamo de $1.000.000 a 12 meses al 1 % mensual (cuota $88.848,79). La tasa mensual de 12 % E.A. (0,9489 %) y la de 100 % E.A. (5,9463 % = 2^(1/12) − 1) son valores conocidos de conversión de tasas.
+- Tabla de cuotas con E.A. 29,21 % (i = 0,02158539913422497): $1.254.700 a 6, 12, 24, 36 y 60 cuotas → 225.196,278855, 119.802,133172, 67.534,721989, 50.487,483510 y 37.493,902150; $500.000 a 3 y 6 cuotas → 173.913,014933 y 89.741,085062.
+- **Tolerancia al verificar** (decisión D8): el valor de la hoja con 2 decimales (`toBeCloseTo(119802.13, 2)`, diferencia menor que 0,005); los calculados por el tester con 6 decimales cuando la cuota es menor que 1.000.000 y con 4 cuando es mayor (el error de la doble precisión crece con la magnitud). Nunca se compara contra un valor redondeado al peso: la función **no redondea**.
+
+### Contrato de nombres (aprobado)
+
+- Archivo `src/tarjetas/cuota-credito.ts`, con **funciones puras** exportadas, sin dependencias de Nest, de Mongoose ni de la base (pueden importar tipos). Las pruebas importan de ese archivo, que el implementador crea.
+- `calcularTasaMensual(tasaEA: number): number` — tasa mensual equivalente, `(1 + EA)^(1/12) − 1`.
+- `calcularCuota(compra: { valor: number; cuotas: number; tasaEAAplicada: number; cuotaUnicaSinInteres: boolean }): number` — cuota mensual sin redondear. Recibe un objeto con esos cuatro campos (los nombres de `CompraCredito`); cualquier otra propiedad del objeto se ignora.
+- `calcularMesUltimoPago(primerPago: Date, cuotas: number): Date` — el día 1 a las 00:00:00.000 UTC del mes de la última cuota.
+- Los errores son `RangeError` con un mensaje que empieza por el nombre del campo (D4). Las pruebas verifican la clase y que el mensaje contenga el nombre del campo, no el texto completo.
+
+### Decisiones aprobadas por el desarrollador (2026-11-12)
+
+El desarrollador aprobó la opción recomendada en las nueve decisiones; los criterios de abajo ya la reflejan. Ninguna de estas reglas está definida en un RF ni en un ADR, salvo donde se cita; cada una dice su respaldo y su alternativa.
+
+1. **Dónde vive el cálculo** (contrato de nombres; todos los criterios). Recomendado: **funciones puras en un archivo propio** (`src/tarjetas/cuota-credito.ts`), sin inyección de dependencias; fáciles de probar sin Nest ni base y reutilizables por 5.2.3, 5.3.1 y 5.3.2. Fuente: ninguna fija el lugar. El diagrama de servicios del Documento de Diseño Técnico lista `TarjetasService.calcularCuota(compra)` y el Diccionario de la EDT habla de un «servicio de cálculo de cuotas»: la recomendación **no contradice** el diseño, pero lo interpreta así: cuando `TarjetasService` necesite exponer `calcularCuota(compra)` (5.2.3 o 5.3.1), lo hará delegando en estas funciones; ese método no se prueba aquí. Alternativa: un método de `TarjetasService` (obliga a construir el servicio con sus modelos en cada prueba unitaria y arrastra dependencias que el cálculo no necesita).
+2. **Nombres y firma** (contrato de nombres). Recomendado: las tres funciones de arriba, en español, con el mismo estilo que `resolverPeriodo` y `mesesEntre`; `calcularMesUltimoPago` aparte de `calcularCuota` (tienen entradas distintas y 5.3.1 las usa por separado). Alternativas: argumentos posicionales `(valor, cuotas, tasaEA, cuotaUnicaSinInteres)` (cuatro parámetros del mismo aspecto con un lógico al final, fácil de equivocar) o una sola función que devuelva `{ cuota, mesUltimoPago }`.
+3. **Forma de la entrada** (CA-RF27-19, CA-RF27-20). Recomendado: un **objeto con los campos de la compra** (`valor`, `cuotas`, `tasaEAAplicada`, `cuotaUnicaSinInteres`), no un documento de Mongoose ni la clase `CompraCredito`: así sirve para una compra ya guardada y para la vista previa de CU-14 (la compra aún no existe y se arma con la tasa y la bandera que la tarjeta tiene hoy, que son las que se copiarán al guardar). Alternativa: recibir solo números.
+4. **Entradas inválidas** (CA-RF27-04, CA-RF27-21 a CA-RF27-25, CA-RF27-32, CA-RF27-33). Recomendado: **lanzar `RangeError`** con el nombre del campo al inicio del mensaje, sin devolver `NaN` ni un valor por defecto, y sin depender de `HttpException` (la función no sabe de HTTP; 5.2.3 ya responde `400` con el DTO antes de llamarla). Se revalidan las mismas reglas que el esquema de 5.2.1 (valor finito y mayor que 0, sin tope; cuotas entero de 1 a 60; tasa de 0 a 1) y además se exige que `cuotaUnicaSinInteres` sea un lógico: si faltara, el cálculo sería en silencio con interés, el mismo riesgo por el que el esquema no le da valor por defecto (D11 de 5.2.1). Se rechaza también el texto numérico (`"12"`): la función recibe números. Por qué validar de nuevo: es una función pública que reutilizan otros paquetes y un `NaN` dentro de un monto de dinero se propaga sin avisar. Alternativas: lanzar `BadRequestException` (responde `400` sin traducir, pero acopla el cálculo a HTTP), devolver `NaN`, o no validar y confiar en el esquema.
+5. **Una sola cuota con tasa mayor que 0 y sin la bandera** (CA-RF27-10). Recomendado: se aplica la fórmula tal cual, que para `n = 1` da `V · (1 + i)`: un mes de interés (ejemplo: $80.000, E.A. 29,21 % → $81.726,83). Fuente: ADR-014 define la excepción solo para «tasa cero» y `CLAUDE.md` y CU-14 solo para tarjetas con `cuotaUnicaSinInteres`; RF-24 existe justamente para distinguir las tarjetas que difieren la cuota única sin intereses de las que no. Alternativa: tratar siempre `n = 1` como `V / n` (haría innecesaria la bandera, contra RF-24 y CU-14).
+6. **Mes del último pago** (CA-RF27-26 a CA-RF27-31). Recomendado: devolver un `Date` (el mismo tipo que `primerPago`) en el **día 1 a las 00:00:00.000 UTC** del mes `primerPago + (cuotas − 1)` meses, con aritmética por mes en UTC, sin importar el día ni la hora de `primerPago` (la función tolera una fecha sin normalizar y usa su mes en UTC), con cruce de año correcto, sin modificar la fecha recibida; una cuota → el mismo mes. Fuente: CU-14 («mes del último pago») y la normalización a día 1 UTC de CA-RF26-22; la fórmula `primerPago + (cuotas − 1)` es la del encargo, sin fuente propia en los documentos. Alternativas: devolver un texto `YYYY-MM` como los reportes, o exigir que `primerPago` ya venga normalizado.
+7. **Qué se devuelve** (todos los de cuota). Recomendado: solo la cuota, un número. El interés total (`cuota · n − valor`), el interés por mes y el cronograma no se calculan aquí: RF-27 pide la cuota y el mes del último pago, y la proyección por mes es de 5.3.1. Nota: el ejemplo de la plantilla (CA-RF27-02) dice «el interés es $0»; eso se deduce de la cuota (`80.000 · 1 − 80.000`) y se prueba como propiedad en CA-RF27-09 sin agregar funciones. Alternativa: devolver también el interés total.
+8. **Precisión y tolerancia** (todos los de cuota). Recomendado: la función no redondea (RNF-11); las pruebas usan las tolerancias de «Valores de referencia» y comprueban expresamente que el resultado conserva decimales más allá del segundo (CA-RF27-06). El Diccionario de la EDT dice «coinciden al peso» ($119.802), pero `CLAUDE.md` y la hoja dan $119.802,13: se verifica el valor más exacto, que incluye al otro. Alternativa: redondear la cuota al peso o a 2 decimales dentro del cálculo (contra RNF-11, y la proyección acumularía el error).
+9. **Tasas positivas casi cero** (CA-RF27-15). Recomendado: sin umbral especial; la fórmula directa debe dar un resultado finito muy cercano a `V / n` y, si el cálculo de la tasa mensual en doble precisión resulta exactamente 0, se aplica `V / n`. No hay fuente; es solo la consecuencia de que la fórmula divide por `i` en el límite.
+
+---
+
+## RF-27 — Calcular la cuota y el mes del último pago de una compra a cuotas
+
+### Tasa mensual equivalente
+
+#### CA-RF27-01 — La tasa mensual equivalente de 29,21 % E.A.
+
+- **Dado** una tasa efectiva anual de 0,2921 (29,21 %)
+- **Cuando** se calcula la tasa mensual equivalente
+- **Entonces** es `(1 + 0,2921)^(1/12) − 1` = 0,02158539913422497 (verificable con `toBeCloseTo(0.02158539913422497, 12)`), sin multiplicarla por 100 ni dividir la tasa anual entre 12 (la tasa mensual **no** es 0,2921 / 12 = 0,02434)
+
+#### CA-RF27-02 — Otras conversiones conocidas
+
+- **Dado** las tasas efectivas anuales 0, 0,12, 1 y `1,01^12 − 1` (la que equivale a 1 % mensual)
+- **Cuando** se calcula la tasa mensual de cada una
+- **Entonces** son 0 (exactamente 0), 0,009488792934583046, 0,05946309435929531 (= 2^(1/12) − 1) y 0,01 (con 12 decimales)
+
+#### CA-RF27-03 — Capitalizar la tasa mensual 12 veces devuelve la anual
+
+- **Dado** las tasas efectivas anuales 0,0001, 0,05, 0,2921, 0,5 y 1
+- **Cuando** se calcula la tasa mensual `i` de cada una
+- **Entonces** `(1 + i)^12 − 1` es igual a la tasa anual de partida con una diferencia menor que 1e-12, y `i` es siempre mayor que 0 y menor que la tasa anual
+
+#### CA-RF27-04 — Una tasa anual inválida se rechaza
+
+- **Dado** una tasa efectiva anual de −0,01, 1,0001, 29,21 (un porcentaje donde se espera una fracción), `NaN`, `Infinity`, el texto `"0.2921"`, `null` o `undefined`
+- **Cuando** se calcula la tasa mensual
+- **Entonces** lanza `RangeError` con un mensaje que contiene `tasaEA` (decisión D4); la tasa 0 y la tasa 1 sí se aceptan
+
+### Cuota mensual: caso de referencia y precisión completa
+
+#### CA-RF27-05 — Caso de referencia de la hoja del promotor
+
+- **Dado** una compra de $1.254.700 a 12 cuotas con tasa aplicada de 0,2921 y sin cuota única sin interés (`cuotaUnicaSinInteres` `false`)
+- **Cuando** se calcula la cuota
+- **Entonces** es $119.802,13 (`toBeCloseTo(119802.13, 2)`; el valor completo es 119.802,1331718775, que se verifica con `toBeCloseTo(119802.1331718775, 6)`), con la tasa mensual `(1 + 0,2921)^(1/12) − 1` y la fórmula `V · i / (1 − (1 + i)^(−n))`
+
+#### CA-RF27-06 — La cuota se devuelve con precisión completa, sin redondear
+
+- **Dado** el caso de referencia ($1.254.700, 12 cuotas, 0,2921) y el de $500.000 a 6 cuotas con 0,2921 (cuota 89.741,08506207)
+- **Cuando** se calculan las cuotas
+- **Entonces** los valores devueltos **no** son iguales a su redondeo al peso ni a 2 decimales (119.802,13 y 89.741,09), sino a los completos (`119802.1331718775` y `89741.08506207002`, con 6 decimales): el redondeo se hace solo al presentar (RNF-11)
+
+#### CA-RF27-07 — Más valores de referencia con E.A. 29,21 %
+
+- **Dado** la tasa aplicada 0,2921, sin cuota única sin interés, y el valor y las cuotas de cada caso
+- **Cuando** se calcula la cuota
+- **Entonces** el resultado es, con 6 decimales: $1.254.700 a 6 cuotas → 225.196,278855; a 24 cuotas → 67.534,721989; a 36 cuotas → 50.487,483510; a 60 cuotas → 37.493,902150; $500.000 a 6 cuotas → 89.741,085062; a 3 cuotas → 173.913,014933; $100.000 a 2 cuotas → 51.624,666866
+
+#### CA-RF27-08 — Valores de referencia con otras tasas
+
+- **Dado** una compra de $1.000.000 a 12 cuotas, sin cuota única sin interés, y la tasa aplicada de cada caso
+- **Cuando** se calcula la cuota
+- **Entonces** con `1,01^12 − 1` (1 % mensual) es 88.848,788678 (la tabla estándar de amortización da $88.848,79); con 0,2 es 91.856,822998; con 1 (100 % E.A.) es 118.926,188719; con 0,0001 es 83.337,847084 (todos con 6 decimales; el último coincide con la búsqueda del saldo en cero)
+
+### Cuota mensual: tasa cero, una cuota y la bandera
+
+#### CA-RF27-09 — Con tasa 0 la cuota es el valor entre las cuotas, con o sin la bandera
+
+- **Dado** una compra con `tasaEAAplicada` 0 y `cuotaUnicaSinInteres` `false`, y la misma con `true`
+- **Cuando** se calcula la cuota de $1.200.000 a 12 cuotas, la de $1.254.700 a 12 cuotas y la de $80.000 a 1 cuota
+- **Entonces** las cuotas son 100.000, 104.558,333333 (con 6 decimales) y 80.000 en los dos casos (`V / n`, ADR-014); en todos, `cuota · cuotas` es igual al valor (el interés es $0)
+
+#### CA-RF27-10 — Una cuota con la bandera activada no cobra interés
+
+- **Dado** una compra con `cuotaUnicaSinInteres` `true`, `cuotas` 1 y tasa aplicada 0,2921, y otra igual con tasa 1
+- **Cuando** se calcula la cuota de $80.000 y la de $1.254.700
+- **Entonces** las cuotas son exactamente 80.000 y 1.254.700, sin importar la tasa (CU-14, flujo alternativo 2a); el interés (`cuota · 1 − valor`) es $0
+
+#### CA-RF27-11 — Una cuota sin la bandera sí cobra un mes de interés
+
+- **Dado** una compra con `cuotaUnicaSinInteres` `false`, `cuotas` 1 y tasa aplicada 0,2921
+- **Cuando** se calcula la cuota de $80.000 y la de $1.254.700
+- **Entonces** las cuotas son $81.726,831931 y $1.281.783,200294 (con 6 decimales; `V · (1 + 0,2921)^(1/12)`), mayores que el valor de la compra (decisión D5; con tasa 0 sería `V / n`, CA-RF27-09)
+
+#### CA-RF27-12 — La bandera no elimina el interés cuando hay más de una cuota
+
+- **Dado** una compra de $1.254.700 a 12 cuotas con tasa aplicada 0,2921 y `cuotaUnicaSinInteres` `true`, y otra de $100.000 a 2 cuotas con la misma tasa y bandera
+- **Cuando** se calculan las cuotas
+- **Entonces** son 119.802,133172 y 51.624,666866 (con 6 decimales), iguales a las de las mismas compras con la bandera en `false` (el caso de referencia no cambia con la bandera); y mayores que `V / n`
+
+### Cuota mensual: bordes de tamaño y de rango
+
+#### CA-RF27-13 — Los extremos válidos de cuotas y de tasa se calculan
+
+- **Dado** una compra de $1.000.000 con tasa aplicada 0,2921 y sin bandera
+- **Cuando** se calcula con 1 cuota, con 60 cuotas y, con tasa 1 y 12 cuotas, y con tasa 0 y 60 cuotas
+- **Entonces** los cuatro resultados son números finitos mayores que 0 y valen, con 6 decimales: 1.021.585,399134 (una cuota: `1.000.000 · (1 + 0,2921)^(1/12)`), 29.882,762533 (60 cuotas), 118.926,188719 (tasa 1, 12 cuotas) y 16.666,666667 (tasa 0, `1.000.000 / 60`)
+
+> Nota: el tope de 60 cuotas viene de D7 de 5.2.1 (aprobado el 2026-11-12; sin fuente en los RF ni en los ADR).
+
+#### CA-RF27-14 — Valores muy pequeños y muy grandes
+
+- **Dado** la tasa aplicada 0,2921 y sin bandera
+- **Cuando** se calcula la cuota de $0,01 a 3 cuotas, de $1 a 12 cuotas, de $999.999.999 a 60 cuotas y de $999.999.999 a 12 cuotas con tasa 1
+- **Entonces** las cuotas son 0,003478 (6 decimales), 0,095483 (6 decimales), 29.882.762,5028 (4 decimales) y 118.926.188,5997 (4 decimales); ninguna es `NaN`, infinita ni negativa, y la cuota crece en proporción al valor (la cuota de $2.509.400 es el doble de la de $1.254.700, con la misma tasa y cuotas)
+
+#### CA-RF27-15 — Una tasa positiva casi cero se comporta como tasa cero
+
+- **Dado** una compra de $1.254.700 a 12 cuotas y, en cada caso, la tasa aplicada 1e-16, 1e-15 y 1e-10
+- **Cuando** se calcula la cuota
+- **Entonces** el resultado es finito y está a menos de 0,0001 de `V / n` = 104.558,333333 (no es `NaN` ni infinito por la división entre una tasa mensual diminuta; decisión D9)
+
+### Cuota mensual: propiedades que deben cumplirse siempre
+
+#### CA-RF27-16 — Las cuotas amortizan exactamente el valor
+
+- **Dado** las compras de $1.254.700 a 12 cuotas, $1.254.700 a 60 cuotas, $500.000 a 6 cuotas y $1.000.000 a 24 cuotas, todas con tasa aplicada 0,2921
+- **Cuando** se calcula la cuota `c` y se simula el saldo (`saldo = saldo · (1 + i) − c`, con `i` la tasa mensual de CA-RF27-01, durante `n` pagos, empezando en el valor de la compra)
+- **Entonces** el saldo final es 0 con una diferencia menor que 0,0001 (la cuota fija cubre capital e interés)
+
+#### CA-RF27-17 — La cuota baja al aumentar las cuotas y sube al aumentar la tasa
+
+- **Dado** una compra de $1.254.700 con tasa 0,2921
+- **Cuando** se calcula la cuota con 1, 2, 3, 6, 12, 24, 36 y 60 cuotas, y con 12 cuotas y tasas 0, 0,1, 0,2921 y 1
+- **Entonces** las cuotas bajan estrictamente al subir el número de cuotas y suben estrictamente al subir la tasa; el total pagado (`cuota · n`) es mayor que el valor siempre que la tasa sea mayor que 0 y `n` mayor que 1 (y crece con `n`), y es igual al valor con tasa 0
+
+#### CA-RF27-18 — El cálculo no cambia ni guarda nada
+
+- **Dado** una compra (objeto) congelada con `Object.freeze`, con los cuatro campos
+- **Cuando** se calcula la cuota dos veces
+- **Entonces** no lanza error por escritura, ambas llamadas dan exactamente el mismo número y el objeto sigue igual (función pura; la cuota no se guarda, RNF-11)
+
+#### CA-RF27-19 — Usa la tasa copiada en la compra, no otra tasa
+
+- **Dado** una compra con `tasaEAAplicada` 0,2921 que además trae otras propiedades, entre ellas `tasaEA` 0,5 y `cuotaUnicaSinInteres` `false` (como podría llegar una compra con su tarjeta adjunta)
+- **Cuando** se calcula la cuota de $1.254.700 a 12 cuotas
+- **Entonces** es $119.802,13 (la de 0,2921, no la de 0,5): el cálculo usa solo `valor`, `cuotas`, `tasaEAAplicada` y `cuotaUnicaSinInteres`, de modo que cambiar la tasa de la tarjeta no recalcula compras anteriores (RF-25, ADR-014; la prueba con la tarjeta real llega en 5.2.3)
+
+#### CA-RF27-20 — Sirve para una compra todavía sin guardar y para un avance
+
+- **Dado** un objeto con solo `valor`, `cuotas`, `tasaEAAplicada` y `cuotaUnicaSinInteres` (sin `_id`, `tarjetaId`, fechas ni `tipo`, como en la vista previa de CU-14), y otro objeto con además `tipo` `AVANCE`
+- **Cuando** se calcula la cuota de $500.000 a 6 cuotas con tasa 0,2921
+- **Entonces** ambos dan 89.741,085062 (con 6 decimales): el avance se calcula igual que una compra (RF-28)
+
+### Cuota mensual: entradas inválidas
+
+Todas lanzan `RangeError` con un mensaje que contiene el nombre del campo (decisión D4) y no devuelven nada.
+
+#### CA-RF27-21 — Valor que no es un número mayor que 0
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `valor` es 0, −1254700, `NaN`, `Infinity`, `-Infinity`, el texto `"1254700"`, `null` o `undefined`
+- **Entonces** lanza `RangeError` con `valor` en el mensaje; en cambio `valor` 0,01 se acepta
+
+#### CA-RF27-22 — Número de cuotas fuera de rango o no entero
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `cuotas` es 0, −1, 12,5, 61, `NaN`, `Infinity`, el texto `"12"`, `null` o `undefined`
+- **Entonces** lanza `RangeError` con `cuotas` en el mensaje; 1 y 60 se aceptan
+
+#### CA-RF27-23 — Tasa aplicada fuera de rango o que no es un número
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `tasaEAAplicada` es −0,01, 1,0001, 29,21 (un porcentaje donde se espera una fracción), `NaN`, `Infinity`, el texto `"0.2921"`, `null` o `undefined`
+- **Entonces** lanza `RangeError` con `tasaEAAplicada` en el mensaje; 0 y 1 se aceptan
+
+#### CA-RF27-24 — La bandera ausente o que no es lógica se rechaza
+
+- **Dado** una compra con los demás campos válidos
+- **Cuando** `cuotaUnicaSinInteres` es `undefined` (ausente), `null`, el texto `"true"` o el número 1
+- **Entonces** lanza `RangeError` con `cuotaUnicaSinInteres` en el mensaje (no se asume `false`: calcular con interés donde correspondía sin interés sería un error silencioso, decisión D4)
+
+#### CA-RF27-25 — Con varios campos inválidos también falla
+
+- **Dado** una compra con `valor` −1, `cuotas` 0 y `tasaEAAplicada` 29,21
+- **Cuando** se calcula la cuota
+- **Entonces** lanza `RangeError`; el mensaje puede mencionar cualquiera de los campos inválidos (no se especifica el orden)
+
+### Mes del último pago
+
+#### CA-RF27-26 — El caso de referencia: 12 cuotas terminan once meses después
+
+- **Dado** una compra con `primerPago` 2026-12-01T00:00:00.000Z
+- **Cuando** se calcula el mes del último pago con 12 cuotas
+- **Entonces** es 2027-11-01T00:00:00.000Z (primer pago + 11 meses, con cruce de año; CU-14)
+
+#### CA-RF27-27 — Una, dos y tres cuotas, con cruce de año
+
+- **Dado** `primerPago` 2026-12-01T00:00:00.000Z
+- **Cuando** se calcula con 1, 2 y 3 cuotas
+- **Entonces** el mes del último pago es 2026-12-01 (el mismo mes), 2027-01-01 y 2027-02-01, cada uno a las 00:00:00.000 UTC
+
+#### CA-RF27-28 — Sesenta cuotas
+
+- **Dado** `primerPago` 2026-01-01T00:00:00.000Z, y otra compra con 2026-12-01T00:00:00.000Z
+- **Cuando** se calcula con 60 cuotas
+- **Entonces** el mes del último pago es 2030-12-01T00:00:00.000Z y 2031-11-01T00:00:00.000Z (cinco años menos un mes después del primero)
+
+#### CA-RF27-29 — El día y la hora del primer pago no cambian el mes
+
+- **Dado** `primerPago` sin normalizar: 2026-01-31T23:59:59.000Z, 2026-12-31T23:59:59.999Z, 2028-02-29T12:00:00.000Z y 2027-01-01T00:00:00.000Z
+- **Cuando** se calcula con 2, 1, 2 y 1 cuota respectivamente
+- **Entonces** los meses del último pago son 2026-02-01, 2026-12-01, 2028-03-01 y 2027-01-01 (cada uno a las 00:00:00.000 UTC): se usa el mes en UTC de la fecha, sin saltos por fin de mes (no hay «31 de enero + 1 mes = 3 de marzo») ni por año bisiesto
+
+#### CA-RF27-30 — Siempre devuelve el día 1 a las 00:00 UTC y no modifica la fecha recibida
+
+- **Dado** un `primerPago` 2026-03-15T10:30:00.000Z, congelado o copiado antes de llamar
+- **Cuando** se calcula con 6 cuotas
+- **Entonces** el resultado es 2026-08-01T00:00:00.000Z, es un `Date` nuevo (no el mismo objeto) y la fecha recibida conserva exactamente su valor original
+
+#### CA-RF27-31 — La función de meses cumple lo mismo de punta a punta
+
+- **Dado** cualquier `primerPago` normalizado entre enero de 2026 y diciembre de 2027 (por ejemplo, el día 1 de cada uno de esos 24 meses) y cualquier número de cuotas entre 1 y 60
+- **Cuando** se calcula el mes del último pago
+- **Entonces** la cantidad de meses entre `primerPago` y el resultado es siempre `cuotas − 1` (contando meses del calendario: `años · 12 + mes`)
+
+#### CA-RF27-32 — Cuotas inválidas en el cálculo del mes
+
+- **Dado** un `primerPago` válido
+- **Cuando** `cuotas` es 0, −1, 12,5, 61, `NaN`, `Infinity`, el texto `"12"`, `null` o `undefined`
+- **Entonces** lanza `RangeError` con `cuotas` en el mensaje (las mismas reglas de CA-RF27-22)
+
+#### CA-RF27-33 — Un primer pago que no es una fecha válida se rechaza
+
+- **Dado** 12 cuotas
+- **Cuando** `primerPago` es una fecha inválida (`new Date('no es fecha')`), `null`, `undefined`, el texto `"2026-12-01"` o el número 1796083200000
+- **Entonces** lanza `RangeError` con `primerPago` en el mensaje (la función recibe un `Date`, como el que guarda el esquema; decisión D6)
+
+---
+
+## Índice de criterios del paquete 5.2.2
+
+- **RF-27:** CA-RF27-01 a CA-RF27-33. Tasa mensual: 01 a 04; cuota de referencia y precisión: 05 a 08; tasa cero, una cuota y bandera: 09 a 12; bordes de tamaño y rango: 13 a 15; propiedades: 16 a 20; entradas inválidas de la cuota: 21 a 25; mes del último pago: 26 a 33.
+- **Total:** 33 criterios.
+
+### Criterios con «Pendiente de decisión»
+
+Ninguno. Las decisiones D1 a D9 de este paquete quedaron aprobadas el 2026-11-12, incluido el tope de 60 cuotas de CA-RF27-13. Las reglas que dependen de ellas son: D1 y D2 (el contrato de nombres de todos los criterios), D3 (CA-RF27-19 y 20), D4 (CA-RF27-04 y 21 a 25, 32, 33), D5 (CA-RF27-11), D6 (CA-RF27-26 a 31), D7 (CA-RF27-09 y 10), D8 (CA-RF27-05 a 08) y D9 (CA-RF27-15).
