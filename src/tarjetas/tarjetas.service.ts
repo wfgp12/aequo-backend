@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { type Model, Types } from 'mongoose';
 import { Transaccion } from '../transacciones/transaccion.schema.js';
@@ -10,13 +10,16 @@ import type { CrearTarjetaDto } from './dto/crear-tarjeta.dto.js';
 import type { ListarCargosQueryDto } from './dto/listar-cargos-query.dto.js';
 import type { TarjetaRespuestaDto } from './dto/tarjeta-respuesta.dto.js';
 import { CargoRecurrente, type CargoRecurrenteDocument } from './cargo-recurrente.schema.js';
+import { CompraCredito } from './compra-credito.schema.js';
 import { TarjetaCredito, type TarjetaCreditoDocument } from './tarjeta-credito.schema.js';
+import { validarCuerpo } from './validar-cuerpo.js';
 
 const MENSAJES = {
   tarjetaNoEncontrada: 'Tarjeta no encontrada',
   cargoNoEncontrado: 'Cargo fijo no encontrado',
   nombreDuplicado: 'Ya existe una tarjeta con ese nombre',
   conPagos: 'No se puede eliminar una tarjeta que ya tiene pagos registrados',
+  conCompras: 'No se puede eliminar una tarjeta que ya tiene compras registradas',
 };
 
 /** Lo que el cliente puede ver de una tarjeta: sin usuario, `_id` ni `__v`. */
@@ -50,21 +53,13 @@ function comoConflicto(error: unknown): never {
   throw error;
 }
 
-/** Al editar: al menos un campo y ninguno en null (a una tarjeta o cargo no se le quita un dato). */
-function validarCuerpo(dto: object): Record<string, unknown> {
-  const enviados = Object.entries(dto).filter(([, valor]) => valor !== undefined);
-  const nulos = enviados.filter(([, valor]) => valor === null).map(([campo]) => `${campo} no puede ser null`);
-  if (nulos.length > 0) throw new BadRequestException(nulos);
-  if (enviados.length === 0) throw new BadRequestException(['Debes enviar al menos un campo para modificar']);
-  return Object.fromEntries(enviados);
-}
-
 @Injectable()
 export class TarjetasService {
   constructor(
     @InjectModel(TarjetaCredito.name) private readonly tarjetas: Model<TarjetaCredito>,
     @InjectModel(CargoRecurrente.name) private readonly cargos: Model<CargoRecurrente>,
     @InjectModel(Transaccion.name) private readonly transacciones: Model<Transaccion>,
+    @InjectModel(CompraCredito.name) private readonly compras: Model<CompraCredito>,
   ) {}
 
   // ------------------------------------------------------------------------------------------------ tarjetas
@@ -109,11 +104,14 @@ export class TarjetasService {
   }
 
   /**
-   * Elimina una tarjeta propia y, en cascada, sus cargos fijos. Con pagos registrados (transacciones con su
-   * `tarjetaId`) no se elimina nada: borrarla dejaría pagos que cuentan en el balance apuntando a una tarjeta inexistente.
+   * Elimina una tarjeta propia y, en cascada, sus cargos fijos. Con compras o avances no se elimina nada (se
+   * comprueba antes que los pagos: un avance tiene una transacción con su `tarjetaId` y pasaría por «pago»). Con
+   * pagos registrados (transacciones con su `tarjetaId`) tampoco: borrarla dejaría pagos que cuentan en el balance
+   * apuntando a una tarjeta inexistente.
    */
   async eliminar(usuarioId: string, id: string): Promise<void> {
     const tarjeta = await this.obtenerPropia(usuarioId, id);
+    if (await this.compras.exists({ tarjetaId: tarjeta._id })) throw new ConflictException(MENSAJES.conCompras);
     const conPagos = await this.transacciones.exists({
       usuarioId: new Types.ObjectId(usuarioId),
       tarjetaId: tarjeta._id,
@@ -164,10 +162,8 @@ export class TarjetasService {
     await this.cargos.deleteOne({ _id: cargo._id });
   }
 
-  // ------------------------------------------------------------------------------------------------ privados
-
   /** La tarjeta solo si es del usuario: una inexistente y una ajena dan el mismo 404, para no revelar qué ids existen. */
-  private async obtenerPropia(usuarioId: string, id: string) {
+  async obtenerPropia(usuarioId: string, id: string) {
     const tarjeta = await this.tarjetas.findOne({
       _id: new Types.ObjectId(id),
       usuarioId: new Types.ObjectId(usuarioId),

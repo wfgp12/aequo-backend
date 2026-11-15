@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { type Model, Types } from 'mongoose';
+import { CompraCredito } from '../tarjetas/compra-credito.schema.js';
 import type { TipoTransaccion } from '../transacciones/transaccion.enums.js';
 import { Transaccion } from '../transacciones/transaccion.schema.js';
 import { Categoria, type CategoriaDocument } from './categoria.schema.js';
@@ -36,6 +37,7 @@ export class CategoriasService {
   constructor(
     @InjectModel(Categoria.name) private readonly categorias: Model<Categoria>,
     @InjectModel(Transaccion.name) private readonly transacciones: Model<Transaccion>,
+    @InjectModel(CompraCredito.name) private readonly compras: Model<CompraCredito>,
   ) {}
 
   /** Las categorías que el usuario puede usar: las generales del sistema y las suyas. */
@@ -121,16 +123,22 @@ export class CategoriasService {
     return categoria;
   }
 
-  private async reasignarAOtros(usuarioId: string, categoria: CategoriaDocument): Promise<void> {
-    const respaldo = await this.categorias.findOne({ esRespaldo: true, tipo: categoria.tipo });
+  /** La categoría general de respaldo ("Otros") del tipo dado: adonde van los movimientos de una categoría eliminada. */
+  async obtenerRespaldo(tipo: TipoTransaccion): Promise<CategoriaDocument> {
+    const respaldo = await this.categorias.findOne({ esRespaldo: true, tipo });
     if (!respaldo) {
       // Un error de datos, no del cliente: la siembra debe haber creado una de respaldo por tipo.
-      throw new InternalServerErrorException(`No existe la categoría general de respaldo de ${categoria.tipo}`);
+      throw new InternalServerErrorException(`No existe la categoría general de respaldo de ${tipo}`);
     }
-    await this.transacciones.updateMany(
-      { usuarioId: new Types.ObjectId(usuarioId), categoriaId: categoria._id },
-      { categoriaId: respaldo._id },
-    );
+    return respaldo;
+  }
+
+  /** Mueve a la categoría de respaldo las transacciones y las compras con tarjeta de la categoría que se elimina. */
+  private async reasignarAOtros(usuarioId: string, categoria: CategoriaDocument): Promise<void> {
+    const respaldo = await this.obtenerRespaldo(categoria.tipo);
+    const filtro = { usuarioId: new Types.ObjectId(usuarioId), categoriaId: categoria._id };
+    await this.transacciones.updateMany(filtro, { categoriaId: respaldo._id });
+    await this.compras.updateMany(filtro, { categoriaId: respaldo._id });
   }
 
   private async validarNombreLibre(usuarioId: string, tipo: TipoTransaccion, nombre: string, ignorarId?: string) {

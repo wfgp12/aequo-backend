@@ -30,6 +30,12 @@ export const ZonaHoraria = createParamDecorator((_dato: unknown, contexto: Execu
   return zona;
 });
 
+/** El día `YYYY-MM-DD` de `instante` visto desde la zona IANA dada (la fecha de "hoy" del cliente). */
+export const diaEnZona = (instante: Date, zona: string): string =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: zona, year: 'numeric', month: '2-digit', day: '2-digit' }).format(
+    instante,
+  );
+
 /** Documenta el header en Swagger; se aplica a los endpoints que usan `@ZonaHoraria()`. */
 export const ApiZonaHoraria = () =>
   applyDecorators(
@@ -38,6 +44,6 @@ export const ApiZonaHoraria = () =>
       required: false,
       example: 'America/Bogota',
       description:
-        'Zona horaria del cliente (nombre IANA). Solo decide qué mes es el "mes actual" cuando no se envía `mes` ni `desde`/`hasta`; en los demás casos no cambia nada. Sin el header se usa UTC. Un nombre inválido responde `400`, también si se envía `mes` o un rango.',
+        'Zona horaria del cliente (nombre IANA). Solo decide qué día o mes es "hoy" cuando la petición no lo trae: el "mes actual" si no se envía `mes` ni `desde`/`hasta`, o la `fecha` de una compra o avance si no se envía; en los demás casos no cambia nada. Sin el header se usa UTC. Un nombre inválido responde `400`, también si se envía `mes`, un rango o `fecha`.',
     }),
   );

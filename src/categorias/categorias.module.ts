@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { IdempotenciaModule } from '../idempotencia/idempotencia.module.js';
+import { CompraCredito, CompraCreditoSchema } from '../tarjetas/compra-credito.schema.js';
 import { Transaccion, TransaccionSchema } from '../transacciones/transaccion.schema.js';
 import { Categoria, CategoriaSchema } from './categoria.schema.js';
 import { CategoriasController } from './categorias.controller.js';
@@ -9,13 +10,15 @@ import { CategoriasSemilla } from './categorias-semilla.service.js';
 
 // Registrar el modelo aquí es lo que permite que AuthService.eliminarCuenta() borre las categorías personales.
 // Se registra también el de Transaccion (el mismo esquema) para contar y reasignar movimientos sin que
-// CategoriasModule dependa de TransaccionesModule, que a su vez depende de este.
+// CategoriasModule dependa de TransaccionesModule, que a su vez depende de este; y el de CompraCredito, para
+// reasignar también las compras con tarjeta (RF-12).
 @Module({
   imports: [
     IdempotenciaModule,
     MongooseModule.forFeature([
       { name: Categoria.name, schema: CategoriaSchema },
       { name: Transaccion.name, schema: TransaccionSchema },
+      { name: CompraCredito.name, schema: CompraCreditoSchema },
     ]),
   ],
   controllers: [CategoriasController],
