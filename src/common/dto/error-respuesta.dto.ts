@@ -190,6 +190,16 @@ export class ErrorCargoNoEncontradoDto extends ErrorNoEncontradoBaseDto {
   message: string;
 }
 
+export class ErrorCompraNoEncontradaDto extends ErrorNoEncontradoBaseDto {
+  @ApiProperty({
+    type: String,
+    example: 'Compra no encontrada',
+    description:
+      'La compra no existe, es de otro usuario o es de otra tarjeta que la de la ruta. Si la tarjeta de la ruta no es propia, el mensaje es `Tarjeta no encontrada`; si la categoría enviada no existe o es de otro usuario, `Categoría no encontrada`.',
+  })
+  message: string;
+}
+
 export class ErrorRecursoNoEncontradoDto {
   @ApiProperty({ type: Number, example: 404, description: 'Código HTTP de la respuesta.' })
   statusCode: number;

@@ -45,7 +45,8 @@ describe('Esquema de Compra con tarjeta de crédito', () => {
       expect(compra.tipo).toBe('COMPRA');
     });
 
-    it('CA-RF26-02 guarda solo los campos del modelo: nada calculado', () => {
+    // Modificado en 5.2.3 (D12, aprobado el 2026-11-13): la lista incluye `transaccionId`, el enlace del avance con su transacción.
+    it('CA-RF26-02 guarda solo los campos del modelo (más transaccionId): nada calculado', () => {
       const campos = Object.keys(CompraCreditoSchema.paths).filter(
         (campo) => !['_id', '__v', 'createdAt', 'updatedAt'].includes(campo),
       );
@@ -60,6 +61,7 @@ describe('Esquema de Compra con tarjeta de crédito', () => {
         'tarjetaId',
         'tasaEAAplicada',
         'tipo',
+        'transaccionId',
         'usuarioId',
         'valor',
       ]);
@@ -391,5 +393,38 @@ describe('Esquema de Compra con tarjeta de crédito', () => {
         ]);
       },
     );
+
+    describe('transaccionId: el enlace del avance con su transacción (5.2.3)', () => {
+      it('CA-RF28-25 es un ObjectId opcional que referencia a Transaccion y no tiene valor por defecto', () => {
+        const campo = CompraCreditoSchema.path('transaccionId');
+
+        expect(campo.instance).toBe('ObjectId');
+        expect(campo.options.ref).toBe('Transaccion');
+        expect(campo.isRequired).toBeFalsy();
+        expect(campo.options.default).toBeUndefined();
+      });
+
+      it('CA-RF28-25 sin transaccionId o con un id válido pasa la validación, y sin él el documento no tiene el campo', () => {
+        const sinEnlace = new CompraModelo(datosValidos());
+        const idDeTransaccion = nuevoId();
+        const conEnlace = new CompraModelo(
+          datosValidos({ tipo: 'AVANCE', transaccionId: idDeTransaccion }),
+        );
+
+        expect(sinEnlace.validateSync()).toBeUndefined();
+        expect(sinEnlace.transaccionId).toBeUndefined();
+        expect(sinEnlace.toObject()).not.toHaveProperty('transaccionId');
+        expect(conEnlace.validateSync()).toBeUndefined();
+        expect(String(conEnlace.transaccionId)).toBe(String(idDeTransaccion));
+      });
+
+      it('CA-RF28-25 un transaccionId que no es un id falla con error solo en ese campo', () => {
+        expect(
+          camposConError(
+            datosValidos({ tipo: 'AVANCE', transaccionId: 'no-es-un-id' }),
+          ),
+        ).toEqual(['transaccionId']);
+      });
+    });
   });
 });

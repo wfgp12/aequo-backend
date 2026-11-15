@@ -165,6 +165,9 @@ describe('GET /reportes/periodo (integración: guard de sesión real y MongoDB s
       .useValue({})
       .overrideProvider(getModelToken(Transaccion.name))
       .useValue(transacciones)
+      // 5.2.3: CategoriasModule registra también el modelo CompraCredito (reasigna sus compras al eliminar una categoría).
+      .overrideProvider(getModelToken('CompraCredito'))
+      .useValue({})
       .overrideProvider(getModelToken(Categoria.name))
       .useValue(categorias)
       .overrideProvider(getModelToken(Idempotencia.name))

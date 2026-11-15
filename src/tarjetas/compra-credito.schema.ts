@@ -62,6 +62,10 @@ export class CompraCredito {
   @Prop({ type: Boolean, required: true })
   cuotaUnicaSinInteres: boolean;
 
+  /** Solo los avances: su transacción de dinero recibido. Sin ella el avance no se podría editar ni eliminar (ADR-014). */
+  @Prop({ type: ObjectId, ref: 'Transaccion' })
+  transaccionId?: Types.ObjectId;
+
   // Los agrega Mongoose por `timestamps: true`; no son @Prop.
   createdAt: Date;
   updatedAt: Date;

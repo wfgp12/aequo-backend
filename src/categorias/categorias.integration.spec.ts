@@ -11,6 +11,7 @@ import { crearValidationPipe } from '../common/validation-pipe.js';
 import { Idempotencia } from '../idempotencia/idempotencia.schema.js';
 import { Transaccion } from '../transacciones/transaccion.schema.js';
 import { Usuario } from '../usuarios/usuario.schema.js';
+import { ComprasEnMemoria } from '../../test/tarjetas/colecciones-compras.js';
 import { Categoria } from './categoria.schema.js';
 import { CategoriasModule } from './categorias.module.js';
 
@@ -136,6 +137,9 @@ describe('Categorías (integración: guard de sesión real y MongoDB simulado)',
     })
       .overrideProvider(getModelToken(Usuario.name))
       .useValue({})
+      // 5.2.3: CategoriasModule registra también el modelo CompraCredito (reasigna sus compras al eliminar una categoría).
+      .overrideProvider(getModelToken('CompraCredito'))
+      .useValue(new ComprasEnMemoria())
       .overrideProvider(getModelToken(Categoria.name))
       .useValue(categorias)
       .overrideProvider(getModelToken(Transaccion.name))

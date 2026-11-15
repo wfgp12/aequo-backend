@@ -133,7 +133,8 @@ Elimina una tarjeta propia. **Requiere sesión:** header \`Authorization: Bearer
 
 **Reglas a tener en cuenta**
 - **Borrado en cascada:** sus cargos fijos (activos e inactivos) se eliminan con ella; los de otras tarjetas no se tocan.
-- Una tarjeta con **pagos registrados** (transacciones con su \`tarjetaId\`) no se elimina: responde \`409\` y no se borra nada, ni los cargos. Para eliminarla primero hay que eliminar esos pagos. Cuando existan las compras con tarjeta, una tarjeta con compras tampoco se podrá eliminar.
+- Una tarjeta con **compras o avances** no se elimina: responde \`409\` con \`No se puede eliminar una tarjeta que ya tiene compras registradas\` y no se borra nada (ni los cargos). Primero hay que eliminar sus compras y avances. Esta comprobación va antes que la de pagos, porque un avance tiene una transacción con el \`tarjetaId\` de la tarjeta.
+- Una tarjeta con **pagos registrados** (transacciones con su \`tarjetaId\`) tampoco se elimina: responde \`409\` y no se borra nada, ni los cargos. Para eliminarla primero hay que eliminar esos pagos.
 - Si el id no existe o es de otro usuario responde \`404\` con el mismo mensaje (nunca \`409\`). Repetir la petición cuando ya se eliminó responde \`404\`.
 - Tras eliminarla, el usuario puede volver a usar su nombre.
 `.trim(),
@@ -144,7 +145,7 @@ Elimina una tarjeta propia. **Requiere sesión:** header \`Authorization: Bearer
   @ApiNotFoundResponse(NO_ENCONTRADA)
   @ApiConflictResponse({
     type: ErrorConflictoDto,
-    description: 'La tarjeta tiene pagos registrados: no se puede eliminar y no se borra nada.',
+    description: 'La tarjeta tiene compras, avances o pagos registrados: no se puede eliminar y no se borra nada.',
   })
   eliminar(@UsuarioActual() usuarioId: string, @Param() { id }: IdTarjetaParamDto): Promise<void> {
     return this.tarjetas.eliminar(usuarioId, id);
