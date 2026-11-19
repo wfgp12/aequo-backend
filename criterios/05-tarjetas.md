@@ -2114,3 +2114,284 @@ El desarrollador aprobó la opción recomendada en todas las decisiones, **salvo
 ### Criterios con «Pendiente de decisión»
 
 Ninguno. El desarrollador aprobó el 2026-11-13 las decisiones D1 a D19 (con D3 fuera del paquete y D12 opción A) y, con ellas, todos los criterios de esta sección.
+
+---
+
+## Paquete 5.2.6 (código provisional) — Vista previa de la cuota de una compra o avance antes de guardar (backend) (RF-27)
+
+Estado: Aprobado (2026-11-19)
+
+### Alcance
+
+Entra **un solo endpoint de lectura**, `GET /tarjetas/:tarjetaId/cuota?valor&cuotas&primerPago`, que responde la **cuota estimada** y el **mes del último pago** de una compra (o avance) que el usuario todavía no guardó, calculados con la **tasa y la bandera `cuotaUnicaSinInteres` actuales** de la tarjeta (que son las que `POST …/compras` y `POST …/avances` copiarán al guardar). Lo pide el frontend para su paquete 5.2.4 (resumen previo a guardar: «la cuota estimada y el mes del último pago», Diccionario de la EDT) y, por RNF-11, el cliente no puede calcular la cuota. El desarrollador aprobó crear este paquete aparte (2026-11-13; antes 5.2.3 D3 lo había dejado para 5.2.4). Sirve igual para el resumen de un **avance** (CU-15 paso 3: «el sistema muestra la cuota estimada»): la tarjeta copia la misma tasa y bandera en ambos.
+
+**No** entran: guardar nada (ni compra, ni avance, ni transacción), el cronograma de cuotas ni el interés total (decisión D7 de 5.2.2), la proyección y el total del mes (5.3.1), el pago de la tarjeta (5.3.2) ni cambios en los endpoints de compras. El cálculo ya existe y está probado (CA-RF27-01..33, `src/tarjetas/cuota-credito.ts`); aquí se verifica cómo lo expone la API.
+
+### Fuentes
+
+- **RF-27 y CU-14 paso 3 (Documento de Diseño Técnico):** «el sistema calcula la cuota con la tasa mensual equivalente y muestra la cuota y el mes del último pago» **antes** de guardar; flujo alternativo 2a (una sola cuota en una tarjeta sin intereses: cuota igual al valor). **CU-15 paso 3** (avance): «el sistema muestra la cuota estimada».
+- **Secuencia «compra a cuotas» (Documento de Diseño Técnico):** el frontend llama `GET /tarjetas/:id/cuota?valor&cuotas`; el backend aplica `i = (1 + EA)^(1/12) − 1` y `cuota = V·i / (1 − (1 + i)^(−n))` y responde «cuota estimada y mes del último pago»; después el usuario guarda con un `POST` y el backend «lee la tasa vigente de la tarjeta» y guarda la compra con copia de la tasa. El boceto no incluye `primerPago` en la consulta, pero sin él no se puede dar el mes del último pago (ver D4).
+- **Diccionario de la EDT, 5.2.4:** «mostrar la cuota estimada antes de guardar»; aceptación «el resumen previo a guardar muestra la cuota estimada y el mes del último pago».
+- **ADR-014 y `CLAUDE.md` (secciones 5, 6 y 7):** fórmula de la cuota (`V / n` con tasa 0 o con una sola cuota en una tarjeta con `cuotaUnicaSinInteres`); los cálculos viven en el backend con precisión completa (RNF-11); solo los `POST` que **crean datos** llevan `@Idempotente()` (este `GET` no crea nada); la documentación Swagger debe ser muy detallada.
+- **Criterios ya aprobados que este paquete reutiliza:** 5.2.2 (cálculo, valores de referencia, CA-RF27-01..33) y 5.2.3 (DTO de compras: `valor` mayor que 0 con decimales, `cuotas` entero de 1 a 60, `primerPago` `YYYY-MM` o fecha real `YYYY-MM-DD`; mensajes que empiezan por el nombre del campo; `404 Tarjeta no encontrada` para tarjeta inexistente o ajena, nunca `403`; `400` antes que `404`; campo no declarado `400`; `message` arreglo; formato de error Nest). Contratos del frontend: `../coordinacion/contratos/compras.md` y `contratos/tarjetas.md`.
+- **Código ya en `develop`:** `calcularCuota` y `calcularMesUltimoPago` (`cuota-credito.ts`), `TarjetasService.obtenerPropia` (404 de tarjeta ajena o inexistente), `ComprasController` (`tarjetas/:tarjetaId`), `TarjetaIdParamDto`, `MesOFechaCalendario`, `CUOTAS_MAXIMAS`, `ValidationPipe` global con `whitelist`, `forbidNonWhitelisted` y `transform`. `CompraRespuestaDto` ya fija los nombres `cuota`, `mesUltimoPago` (`YYYY-MM`), `tasaEAAplicada` y `cuotaUnicaSinInteres`.
+
+### Valores de referencia
+
+Son los de 5.2.3 y 5.2.2: $1.254.700 a 12 cuotas con tasa 0,2921 → `119802.1331718775` (hoja del promotor: $119.802,13) y, con `primerPago` `2026-12`, último pago `2027-11`; $80.000 a 1 cuota con 0,2921 sin la bandera → `81726.8319`, con la bandera → `80000`; $80.000 a 2 cuotas con 0,2921 → `41299.7335`; $1.254.700 a 12 con 0,31 → `120662.1703`; $120.000 a 12 con tasa 0 → `10000`; $500.000 a 6 con 0,2921 → `89741.0851`; $0,01 a 3 cuotas con 0,2921 → `0.003478` (6 decimales); $999.999.999 a 60 con 0,2921 → `29882762.5028` (4 decimales). Las pruebas comparan los de la hoja con 2 decimales (`toBeCloseTo(119802.13, 2)`) y los demás con 4 (o 6 donde se indica).
+
+### Datos de las pruebas
+
+Los de 5.2.3: **tarjeta «Visa»** del usuario con `tasaEA` 0,2921 y `cuotaUnicaSinInteres` `false` (otras tarjetas se indican en cada criterio); un segundo usuario B con sus propias tarjetas. **Consulta base:** `GET /tarjetas/<visa>/cuota?valor=1254700&cuotas=12&primerPago=2026-12`.
+
+### Contrato de nombres (aprobado)
+
+- No hay nombres de código que las pruebas importen: se prueba solo por HTTP, con las colecciones en memoria del arnés `test/tarjetas/arnes-compras.ts` (que ya registra tarjetas, compras, transacciones, categorías e idempotencia). Servicio, controlador y DTO los nombra el implementador (ver D1 y D11).
+
+### Contrato HTTP (aprobado) (lo consumirá el frontend en 5.2.4)
+
+Requiere `Authorization: Bearer <accessToken>`.
+
+| Operación | Ruta | Query | Éxito |
+|---|---|---|---|
+| Vista previa de la cuota | `GET /tarjetas/:tarjetaId/cuota` | `valor` (número > 0), `cuotas` (entero 1 a 60), `primerPago` (`YYYY-MM` o `YYYY-MM-DD`), los tres obligatorios | `200` + `{ cuota, mesUltimoPago, tasaEAAplicada, cuotaUnicaSinInteres }` |
+
+Respuesta (exactamente estos cuatro campos; sin `id`, `usuarioId`, `_id` ni `__v`):
+
+```json
+{
+  "cuota": 119802.1331718775,
+  "mesUltimoPago": "2027-11",
+  "tasaEAAplicada": 0.2921,
+  "cuotaUnicaSinInteres": false
+}
+```
+
+`cuota` es un número **sin redondear** (RNF-11); `mesUltimoPago` es `YYYY-MM`, igual que en la compra; `tasaEAAplicada` y `cuotaUnicaSinInteres` son la tasa y la bandera que la tarjeta tiene **hoy** y que se copiarían al guardar (para mostrar «Tasa 29,21 % E.A.»). Errores: `400` (query o `tarjetaId` inválidos), `401` (sin sesión), `404 Tarjeta no encontrada` (inexistente o de otro usuario), formato Nest `{ statusCode, message, error }` con `message` arreglo en los `400`. Sin `Idempotency-Key` y sin `X-Zona-Horaria`. No guarda nada.
+
+### Decisiones ya tomadas por el desarrollador (no se reabren)
+
+- Este paquete se crea aparte de 5.2.3 y de 5.2.4 (aprobado 2026-11-13).
+- La vista previa usa la **tasa y la bandera actuales** de la tarjeta, las que se copiarán al guardar.
+- **Sin efectos secundarios.** Todas las rutas exigen sesión (Bearer JWT).
+
+### Decisiones aprobadas por el desarrollador (2026-11-19)
+
+El desarrollador aprobó la opción recomendada en las 14 decisiones, **salvo D10, que queda solo con los criterios de que no escribe y de que no usa caché** (se retiró el criterio de «una sola lectura de la tarjeta»). Ninguna de estas reglas está definida en un RF ni en un ADR, salvo donde se cita; cada una dice su respaldo y la alternativa descartada. Los criterios de abajo ya las reflejan.
+
+> Decisión D1 — **ruta y dónde vive.** Recomendado: `GET /tarjetas/:tarjetaId/cuota`, en el `ComprasController` (ya tiene el prefijo `tarjetas/:tarjetaId`, su servicio ya inyecta `TarjetasService` y comprobar «la tarjeta es mía» es una sola llamada a `obtenerPropia`); el cálculo delega en `calcularCuota` y `calcularMesUltimoPago`. Fuente: la secuencia dibuja `GET /tarjetas/:id/cuota`, 5.2.3 D3 y el contrato `compras.md` la nombran `GET /tarjetas/:tarjetaId/cuota`; la clase donde vive no la fija ninguna fuente y las pruebas no la ven. Alternativa: `TarjetasController` con `TarjetasService.calcularCuota(compra)` (el método que lista `CLAUDE.md`).
+
+> Decisión D2 — **nombres de los parámetros de query.** Recomendado: `valor`, `cuotas` y `primerPago`, los mismos del cuerpo de `POST …/compras`. Fuente: propuesta del frontend y la secuencia (`?valor&cuotas`); así el frontend envía los mismos nombres en la vista previa y al guardar. Alternativa: `monto` / `numeroCuotas` (sin fuente).
+
+> Decisión D3 — **formato del texto numérico en la query.** Una query siempre llega como texto, así que no puede aplicar la regla del `POST` (que rechaza `"1000"` como texto en el JSON). Recomendado: se acepta **solo texto decimal simple**: `valor` con la forma `^\d+(\.\d+)?$` y mayor que 0 (`1254700`, `100.5`, `0.01`; punto como separador decimal), y `cuotas` con la forma `^\d+$` entre 1 y 60. Se rechazan (`400`) el texto vacío, `abc`, `1e3`, `0x10`, `1,5` (coma), espacios, el signo (`-5`, `+5`), `12.5` en `cuotas`, `Infinity`/`NaN` y un `valor` que desborde a infinito. Fuente: ninguna; es lo más cercano a las reglas del `POST` (valor finito mayor que 0, cuotas entero de 1 a 60). Alternativa: conversión permisiva con `Number()` (acepta `1e3`, `0x10`, ` 12 `, y convierte `""` en 0 sin avisar).
+
+> Decisión D4 — **`primerPago`.** Recomendado: **obligatorio**, con las mismas reglas que en el `POST` (`YYYY-MM` o una fecha real `YYYY-MM-DD` sin hora, de la que solo se toma el mes), sin restricción respecto de la fecha actual (D7 de 5.2.3), porque sin él no se puede dar el mes del último pago. Fuente: la propuesta del frontend, CU-14 paso 3 y el Diccionario de la EDT («el mes del último pago»); el boceto de la secuencia (`?valor&cuotas`) no lo trae. Alternativa: opcional, y si falta se omite `mesUltimoPago` (la respuesta cambiaría de forma; el frontend siempre lo tiene en ese paso).
+
+> Decisión D5 — **forma de la respuesta.** Recomendado: `{ cuota, mesUltimoPago, tasaEAAplicada, cuotaUnicaSinInteres }`, con los mismos nombres y significado que en la respuesta de la compra (`tasaEAAplicada` es la tasa que **se aplicaría** al guardar): el adaptador del frontend reutiliza su mapeo y la pantalla puede mostrar «Tasa 29,21 % E.A.» y avisar «una cuota sin interés». No repite `valor`, `cuotas` ni `primerPago` ni trae `id`. Fuente: nombres de `CompraRespuestaDto` y del contrato `compras.md`; el frontend sugirió, como opcionales, `tasaEA` y `cuotaUnicaSinInteres`. Alternativas: usar `tasaEA` (el nombre del campo de la tarjeta; en una vista previa de compra se confunde con la tasa ya guardada), devolver solo `{ cuota, mesUltimoPago }`, o repetir la consulta en la respuesta (útil para descartar respuestas que llegan fuera de orden con la espera de ~400 ms del frontend, aunque el cliente puede cancelar la petición anterior).
+
+> Decisión D6 — **parámetros no declarados.** Recomendado: cualquier otro parámetro responde `400` con un texto que empieza por su nombre, en especial `fecha`, `tipo`, `tasaEA`, `tasaEAAplicada`, `cuotaUnicaSinInteres`, `usuarioId`, `descripcion` y `categoriaId`. El cliente **nunca elige** la tasa ni la bandera: son las de la tarjeta (la vista previa no sirve para «simular otra tasa»). Fuente: la regla ya aprobada de 5.1.2/5.2.3 (campo no declarado → `400`, `ValidationPipe` estricto) y CA-RF26-49. Alternativa: ignorarlos en silencio (el frontend no se enteraría de que su parámetro no tuvo efecto).
+
+> Decisión D7 — **orden de comprobaciones y mensajes.** Recomendado: un `401` sin sesión va antes que todo; luego formato de `tarjetaId` y de la query (`400`); luego la tarjeta (`404 Tarjeta no encontrada`, mensaje fijo igual para ajena e inexistente, nunca `403`). Una tarjeta ajena con query inválida responde `400`: no revela si existe. Fuente: D19 de 5.2.3 y 5.1.2. Alternativa: `404` primero (exigiría leer la tarjeta antes de validar).
+
+> Decisión D8 — **headers.** Recomendado: no exige `Idempotency-Key` (no crea datos: `CLAUDE.md` sección 6; ni siquiera con `IDEMPOTENCIA_OBLIGATORIA=true`) ni `X-Zona-Horaria` (no hay «hoy» que resolver); si llegan, se ignoran sin error y la respuesta no lleva `Idempotent-Replayed`. Fuente: `CLAUDE.md` sección 6 y el encargo del frontend. Alternativa: rechazar un `X-Zona-Horaria` inválido con `400` (innecesario: no se usa).
+
+> Decisión D9 — **una misma ruta para compra y avance.** Recomendado: una sola ruta (no `…/cuota-avance`), porque el avance copia de la tarjeta la misma tasa y la misma bandera y se calcula igual que una compra (RF-28, CA-RF27-20). Fuente: CU-15 paso 3 y 5.2.2. Alternativa: ruta aparte para el avance (duplica sin diferencia de comportamiento).
+
+> Decisión D10 — **rendimiento: barata, sin escrituras y sin caché (aprobada sin el criterio de lecturas).** La consulta se pedirá con cada cambio de valor, cuotas o mes (con espera de ~400 ms). Criterios verificables: (a) **no escribe en ninguna colección** y responde aunque las escrituras fallen (CA-RF27-49 y 52); (b) **no guarda en caché** la tasa: cambiar la tasa de la tarjeta se refleja en la siguiente consulta (CA-RF27-46). Fuente: el encargo del frontend; no hay RNF numérico para este endpoint. **Retirado por el desarrollador:** el criterio «lee solo la colección de tarjetas, una vez» (iba a ser CA-RF27-53); queda como práctica de revisión de código, no como prueba.
+
+> Decisión D11 — **DTO y reutilización con la compra.** Recomendado (no verificable por HTTP, pero fija los mensajes y Swagger): una clase de query propia, que **reutiliza** `TarjetaIdParamDto`, el validador `MesOFechaCalendario('primerPago')`, la constante `CUOTAS_MAXIMAS` y los mensajes de `CrearCompraDto`, y añade solo la regla de texto de D3 (porque la query llega como texto). No se puede usar `PickType(CrearCompraDto, ['valor', 'cuotas', 'primerPago'])` tal cual: sus reglas (`IsNumber`, `IsInt`) rechazan el texto que trae la query. Los mensajes de error empiezan por el nombre del campo, como en el `POST`; el texto exacto de `valor` y `cuotas` puede variar. Alternativa: `PickType` más una transformación de texto a número con `Number()` (D3, alternativa).
+
+> Decisión D12 — **numeración de los criterios.** Los IDs `CA-RF27-39` a `CA-RF27-42` estuvieron reservados en un borrador de 5.2.3 y salieron de ese paquete (D3 de 5.2.3; no existe prueba con esos IDs). Recomendado: reutilizarlos aquí, continuando la numeración tras CA-RF27-38. Alternativa: empezar en `CA-RF27-43`.
+
+> Decisión D13 — **sin tope superior para `valor`.** Recomendado: igual que en el `POST` (mayor que 0, sin máximo); solo se rechaza lo que no es finito. Fuente: CA-RF26-44 y 5.2.2 (`calcularCuota` no tiene tope). Alternativa: un tope (sin fuente).
+
+> Decisión D14 — **contrato y Swagger.** Recomendado: al aprobarse, el arquitecto deja en `../coordinacion/contratos/` este contrato para la conformidad del frontend; el Swagger de la ruta queda como la fuente de verdad una vez implementada (ver «Documentación Swagger»).
+
+---
+
+### RF-27 — Vista previa de la cuota (API)
+
+#### La respuesta
+
+#### CA-RF27-39 — La vista previa de la compra de referencia de la hoja del promotor
+
+- **Dado** la tarjeta «Visa» del usuario (E.A. 0,2921, sin la bandera)
+- **Cuando** envía `GET /tarjetas/<visa>/cuota?valor=1254700&cuotas=12&primerPago=2026-12`
+- **Entonces** responde `200` con **exactamente** `cuota`, `mesUltimoPago`, `tasaEAAplicada` y `cuotaUnicaSinInteres`: `cuota` 119802,13 (`toBeCloseTo(119802.13, 2)`), `mesUltimoPago` `"2027-11"` (once meses después del primer pago, con cruce de año), `tasaEAAplicada` 0,2921 y `cuotaUnicaSinInteres` `false`; sin `id`, `usuarioId`, `_id` ni `__v`
+
+#### CA-RF27-40 — La cuota llega con precisión completa, sin redondear
+
+- **Dado** la tarjeta «Visa» (0,2921) y la consulta base
+- **Cuando** consulta la vista previa
+- **Entonces** `cuota` está dentro de `119802.1331718775` con 6 decimales (`toBeCloseTo(119802.1331718775, 6)`) y **no** es `119802.13` ni `119802`: el redondeo lo hace el cliente al presentar (RNF-11)
+
+#### CA-RF27-41 — El mes del último pago cruza años y es el mismo mes con una cuota
+
+- **Dado** la tarjeta «Visa» y `valor=1254700`
+- **Cuando** consulta con `primerPago=2026-12` y `cuotas=1`, con `2026-12` y `cuotas=60`, con `2026-11` y `cuotas=24`, con `2026-12-15` y `cuotas=12`, y con `2026-01-31` y `cuotas=1`
+- **Entonces** `mesUltimoPago` es `"2026-12"`, `"2031-11"`, `"2028-10"`, `"2027-11"` y `"2026-01"` (el día del `primerPago` no corre el mes; igual que CA-RF26-37 y CA-RF27-37)
+
+#### CA-RF27-42 — Una cuota sin la bandera cobra un mes de interés; con la bandera, no
+
+- **Dado** una tarjeta «Visa» con `cuotaUnicaSinInteres` `false` y otra «Débito» con `true`, ambas con tasa 0,2921
+- **Cuando** consulta `valor=80000&cuotas=1` en cada una, y `valor=80000&cuotas=2` en «Débito»
+- **Entonces** `cuota` es `81726.8319` (4 decimales) en «Visa» a 1 cuota, `80000` en «Débito» a 1 cuota (con `cuotaUnicaSinInteres` `true` en la respuesta) y, en «Débito» a 2 cuotas, `41299.7335` (4 decimales): la bandera solo exime la cuota única (igual que CA-RF27-35)
+
+#### CA-RF27-43 — Con tasa cero la cuota es el valor entre las cuotas
+
+- **Dado** una tarjeta con `tasaEA` 0
+- **Cuando** consulta `valor=120000&cuotas=12&primerPago=2026-12`, y `valor=100.5&cuotas=1&primerPago=2026-12`
+- **Entonces** `cuota` es exactamente `10000` y `100.5`, y `tasaEAAplicada` es `0` (igual que CA-RF27-36)
+
+#### CA-RF27-44 — Valores decimales, muy pequeños y muy grandes
+
+- **Dado** la tarjeta «Visa» (0,2921)
+- **Cuando** consulta `valor=0.01&cuotas=3` y `valor=999999999&cuotas=60` (con `primerPago=2026-12`)
+- **Entonces** responden `200` y las cuotas son `0.003478` (6 decimales) y `29882762.5028` (4 decimales); ninguna es `NaN`, infinita ni negativa (mismos valores que CA-RF27-14)
+
+#### La tasa y la bandera de la tarjeta
+
+#### CA-RF27-45 — La respuesta trae la tasa y la bandera que la tarjeta tiene hoy
+
+- **Dado** una tarjeta con `tasaEA` 0,31 y `cuotaUnicaSinInteres` `true`
+- **Cuando** consulta la vista previa
+- **Entonces** `tasaEAAplicada` es `0.31` y `cuotaUnicaSinInteres` es `true` (para que la pantalla muestre «Tasa 31 % E.A.»)
+
+#### CA-RF27-46 — Usa la tasa actual de la tarjeta, sin caché, y no toca las compras anteriores
+
+- **Dado** la tarjeta «Visa» (0,2921) con la compra de referencia ya registrada y la vista previa consultada una vez (cuota 119.802,13)
+- **Cuando** el usuario cambia la tasa a 0,31 con `PATCH /tarjetas/<visa>` y consulta de nuevo la vista previa de $1.254.700 a 12 cuotas
+- **Entonces** `cuota` es `120662.1703` (4 decimales) y `tasaEAAplicada` `0.31`; y la compra registrada antes conserva `tasaEAAplicada` 0,2921 y su `cuota` (la vista previa no modifica nada, CA-RF25-07)
+
+#### CA-RF27-47 — La vista previa coincide con lo que guarda la compra
+
+- **Dado** tres tarjetas: «Visa» (0,2921, `false`), «Débito» (0,2921, `true`) y «Cero» (tasa 0)
+- **Cuando** en cada una consulta la vista previa de la compra base ($1.254.700, 12 cuotas, `2026-12`) y de $80.000 a 1 cuota, y luego registra con `POST …/compras` esa misma compra
+- **Entonces** `cuota`, `mesUltimoPago`, `tasaEAAplicada` y `cuotaUnicaSinInteres` de la vista previa son **idénticos** a los de la compra creada (lo que el usuario ve en el resumen es lo que se guarda)
+
+#### CA-RF27-48 — Sirve también para el resumen de un avance
+
+- **Dado** la tarjeta «Visa» (0,2921, sin la bandera)
+- **Cuando** consulta la vista previa de $500.000 a 6 cuotas con `primerPago=2026-12` y luego registra con `POST …/avances` ese mismo avance
+- **Entonces** la vista previa y el avance creado traen la misma `cuota` (89741,0851, 4 decimales), el mismo `mesUltimoPago` (`"2027-05"`), la misma `tasaEAAplicada` y la misma `cuotaUnicaSinInteres` (CU-15 paso 3)
+
+#### Sin efectos secundarios
+
+#### CA-RF27-49 — No guarda nada
+
+- **Dado** un usuario con la tarjeta «Visa», una compra, un avance (con su transacción) y claves de idempotencia ya guardadas
+- **Cuando** consulta la vista previa varias veces, con valores distintos
+- **Entonces** las colecciones de compras, transacciones, tarjetas (incluida la `actualizadaEn` de la tarjeta) e idempotencia quedan **idénticas** a como estaban (la vista previa no es una compra ni una transacción; el balance no cambia, ADR-014)
+
+#### CA-RF27-50 — No exige `Idempotency-Key` ni `X-Zona-Horaria` y los ignora
+
+- **Dado** la tarjeta «Visa»
+- **Cuando** envía la consulta base sin ningún header especial; con `IDEMPOTENCIA_OBLIGATORIA=true`; con un header `Idempotency-Key`; y con un `X-Zona-Horaria: Zona/Invalida`
+- **Entonces** las cuatro responden `200` con el mismo cuerpo, sin header `Idempotent-Replayed`, y no se guarda ninguna clave de idempotencia (D8)
+
+#### CA-RF27-51 — Repetir la consulta da la misma respuesta
+
+- **Dado** la tarjeta «Visa»
+- **Cuando** envía dos veces la misma consulta
+- **Entonces** las dos respuestas son idénticas y no cambia nada en la base (la consulta se puede repetir con cada cambio del formulario)
+
+#### CA-RF27-52 — Responde aunque la base rechace escrituras
+
+- **Dado** la tarjeta «Visa» y todas las colecciones configuradas para que **toda escritura falle**
+- **Cuando** consulta la vista previa
+- **Entonces** responde `200` con la cuota correcta (la consulta no escribe en ninguna colección; D10)
+
+#### Parámetros de la consulta
+
+Todos los `400` traen el formato de error Nest `{ statusCode, message, error }`, con `message` arreglo y un texto por problema que empieza por el nombre del campo, y no calculan ni guardan nada.
+
+#### CA-RF27-53 — Faltan parámetros obligatorios
+
+- **Dado** la tarjeta «Visa»
+- **Cuando** envía la consulta base sin `valor`, o sin `cuotas`, o sin `primerPago` (cada caso por separado), o sin ningún parámetro
+- **Entonces** cada una responde `400` con un texto por cada parámetro faltante que empieza por su nombre (`valor`, `cuotas`, `primerPago`)
+
+#### CA-RF27-54 — `valor` inválido
+
+- **Dado** la tarjeta «Visa»
+- **Cuando** envía `valor` `0`, `0.0`, `-1`, `+5`, `abc`, el texto vacío (`valor=`), `1e3`, `0x10`, `1,5`, `Infinity`, `NaN` y un número de 400 cifras (que desborda a infinito)
+- **Entonces** cada una responde `400` con un texto que empieza por `valor`; en cambio `valor` `1254700`, `100.5` y `0.01` se aceptan (D3)
+
+#### CA-RF27-55 — `cuotas` inválidas
+
+- **Dado** la tarjeta «Visa»
+- **Cuando** envía `cuotas` `0`, `-1`, `12.5`, `61`, `abc`, `12a`, el texto vacío (`cuotas=`), `1e1` y `NaN`
+- **Entonces** cada una responde `400` con un texto que empieza por `cuotas`; en cambio `cuotas` `1` y `60` se aceptan (el tope de 60 es el aprobado en 5.2.1, D7)
+
+#### CA-RF27-56 — `primerPago` inválido
+
+- **Dado** la tarjeta «Visa»
+- **Cuando** envía `primerPago` `pronto`, `2026-13`, `2026-02-30`, `2026-12-01T00:00:00.000Z` (con hora), `202612` y el texto vacío (`primerPago=`)
+- **Entonces** cada una responde `400` con un texto que empieza por `primerPago` (los mismos casos de CA-RF26-46)
+
+#### CA-RF27-57 — `primerPago` acepta mes o fecha real, sin importar cuándo sea
+
+- **Dado** la tarjeta «Visa» y 12 cuotas
+- **Cuando** envía `primerPago` `2026-12`, `2026-12-15`, `2026-01-31`, `2026-02-28` y `2020-01` (muy anterior a hoy)
+- **Entonces** las cinco responden `200`, con `mesUltimoPago` `"2027-11"`, `"2027-11"`, `"2026-12"`, `"2027-01"` y `"2020-12"` (no hay restricción respecto de la fecha actual, D4)
+
+#### CA-RF27-58 — Un parámetro repetido se rechaza
+
+- **Dado** la tarjeta «Visa»
+- **Cuando** envía `?valor=1000&valor=2000&cuotas=12&primerPago=2026-12`, y lo mismo repitiendo `cuotas` y repitiendo `primerPago`
+- **Entonces** cada una responde `400` con un texto que empieza por el nombre del parámetro repetido (no se usa «el primero» ni «el último» en silencio)
+
+#### CA-RF27-59 — Parámetros no declarados se rechazan: el cliente no elige la tasa
+
+- **Dado** la tarjeta «Visa» (0,2921)
+- **Cuando** la consulta base incluye además `fecha`, `tipo`, `tasaEA`, `tasaEAAplicada`, `cuotaUnicaSinInteres`, `usuarioId`, `descripcion`, `categoriaId` o `foo` (cada uno por separado)
+- **Entonces** cada una responde `400` con un texto que empieza por el nombre del parámetro sobrante (D6); por ejemplo, `?tasaEAAplicada=0.5` no cambia la cuota ni se ignora
+
+#### CA-RF27-60 — Varios parámetros inválidos: un texto por cada uno
+
+- **Dado** la tarjeta «Visa»
+- **Cuando** envía `valor=0&cuotas=61&primerPago=pronto`
+- **Entonces** responde `400` con un texto que empieza por `valor`, otro por `cuotas` y otro por `primerPago`
+
+#### La tarjeta y la sesión
+
+#### CA-RF27-61 — Tarjeta de otro usuario o inexistente: 404; `tarjetaId` mal formado: 400
+
+- **Dado** una tarjeta «Visa» del usuario B y un id válido que no existe
+- **Cuando** el usuario A envía la consulta base a cada una, y a `/tarjetas/no-es-un-id/cuota`
+- **Entonces** las dos primeras responden `404` con `Tarjeta no encontrada` (el mismo mensaje, nunca `403`, y sin `cuota`, tasa ni bandera de la tarjeta ajena) y la tercera `400` con un texto que empieza por `tarjetaId`
+
+#### CA-RF27-62 — Primero se valida la consulta y después la tarjeta
+
+- **Dado** la tarjeta «Visa» del usuario B
+- **Cuando** el usuario A consulta esa tarjeta con `valor=0` y, aparte, con una consulta válida
+- **Entonces** la primera responde `400` (con un texto que empieza por `valor`) y la segunda `404 Tarjeta no encontrada` (D7: una consulta inválida no revela si la tarjeta existe)
+
+#### CA-RF27-63 — La tarjeta de otro usuario no afecta la cuota del usuario
+
+- **Dado** el usuario A con «Visa» (0,2921) y el usuario B con una tarjeta también llamada «Visa» con tasa 0,5
+- **Cuando** A y B consultan la vista previa de la consulta base en su propia tarjeta
+- **Entonces** A obtiene 119802,13 con `tasaEAAplicada` 0,2921 y B obtiene la cuota con 0,5 y `tasaEAAplicada` 0,5 (cada uno ve solo su tarjeta; el usuario sale del JWT)
+
+#### CA-RF27-64 — La ruta exige sesión
+
+- **Dado** una petición sin header `Authorization`, o con un token inválido o vencido
+- **Cuando** consulta `GET /tarjetas/<visa>/cuota` con la consulta base, y también con la tarjeta de otro usuario y con parámetros inválidos
+- **Entonces** todas responden `401` (la sesión se comprueba antes que los parámetros y que la tarjeta) y no se calcula ni se guarda nada
+
+---
+
+### Documentación Swagger
+
+`src/common/swagger.spec.ts` descubre todos los controladores y fallará si la ruta nueva o sus DTO (de query y de respuesta) no tienen etiqueta (`tarjetas`), resumen, descripción detallada, respuestas de error (`400`, `401`, `404` y `500` según apliquen) y `description` + `example` en cada propiedad. Como este `GET` no crea datos, **no** debe documentar `Idempotency-Key` ni `X-Zona-Horaria`. La descripción de la ruta debe explicar, para que otro desarrollador no tenga que leer el código: que es una **vista previa sin efectos** (no guarda compra, avance ni transacción); que usa la tasa y la bandera **actuales** de la tarjeta, las que copiará `POST …/compras` o `POST …/avances` al guardar, y que cambiar la tasa de la tarjeta después no recalcula compras ya guardadas; la fórmula (`i = (1 + EA)^(1/12) − 1`, `cuota = V·i / (1 − (1 + i)^(−n))`, y `V / n` con tasa 0 o una cuota en tarjeta con `cuotaUnicaSinInteres`); que `cuota` llega **sin redondear** (RNF-11) y `mesUltimoPago` es `YYYY-MM`; el formato de cada parámetro (`valor` decimal con punto, `cuotas` entero de 1 a 60, `primerPago` `YYYY-MM` o `YYYY-MM-DD`), que los tres son obligatorios y que cualquier otro parámetro responde `400`; y que sirve igual para el resumen de un avance. Debe actualizarse la descripción general de la etiqueta `tarjetas` en `src/common/swagger.ts` para mencionar la vista previa. Los criterios CA-RF27-53 a CA-RF27-64 fijan los códigos de error que deben documentarse.
+
+---
+
+## Índice de criterios del paquete 5.2.6
+
+- **RF-27:** CA-RF27-39 a CA-RF27-64. Respuesta: 39 a 44 (referencia, precisión, mes del último pago, bandera, tasa cero, extremos); tasa y bandera de la tarjeta: 45 a 48 (actuales, sin caché, igual a lo que guarda la compra y el avance); sin efectos secundarios y rendimiento: 49 a 52; parámetros: 53 a 60; tarjeta y sesión: 61 a 64.
+- **Total:** 26 criterios. El criterio «lee solo la tarjeta, una vez» se retiró (D10) y los siguientes se renumeraron sin huecos.
+
+### Criterios con «Pendiente de decisión»
+
+Ninguno. El desarrollador aprobó el 2026-11-19 las decisiones D1 a D14 (D10 sin el criterio de lecturas) y, con ellas, todos los criterios de esta sección. Reglas que dependen de ellas: D1 (ruta de todos los criterios), D2 (nombres de la query), D3 (CA-RF27-54 y 55), D4 (CA-RF27-39, 53, 56 y 57), D5 (forma de la respuesta de todos los criterios, en especial 39 y 45), D6 (CA-RF27-59), D7 (CA-RF27-61, 62 y 64), D8 (CA-RF27-50), D9 (CA-RF27-48), D10 (CA-RF27-46, 49 y 52), D12 (los IDs) y D13 (CA-RF27-44 y 54).
