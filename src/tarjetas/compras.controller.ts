@@ -9,7 +9,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { UsuarioActual } from '../auth/decoradores.js';
-import { ErrorCompraNoEncontradaDto } from '../common/dto/error-respuesta.dto.js';
+import { ErrorCompraNoEncontradaDto, ErrorTarjetaNoEncontradaDto } from '../common/dto/error-respuesta.dto.js';
 import { ApiZonaHoraria, ZonaHoraria } from '../common/zona-horaria.js';
 import { Idempotente } from '../idempotencia/idempotente.decorator.js';
 import { ComprasService } from './compras.service.js';
@@ -19,6 +19,8 @@ import { CrearAvanceDto } from './dto/crear-avance.dto.js';
 import { CrearCompraDto } from './dto/crear-compra.dto.js';
 import { ListarComprasQueryDto } from './dto/listar-compras-query.dto.js';
 import { IdCompraParamDto, TarjetaIdParamDto } from './dto/parametros.dto.js';
+import { VistaPreviaCuotaQueryDto } from './dto/vista-previa-cuota-query.dto.js';
+import { VistaPreviaCuotaRespuestaDto } from './dto/vista-previa-cuota-respuesta.dto.js';
 import { RespuestaInvalida, RespuestaLista, RespuestasComunes } from './respuestas-api.js';
 
 const NO_ENCONTRADA = {
@@ -140,6 +142,41 @@ Devuelve las compras a cuotas y los avances de una tarjeta propia, con su cuota 
     @Query() consulta: ListarComprasQueryDto,
   ): Promise<{ items: CompraRespuestaDto[] }> {
     return { items: await this.compras.listar(usuarioId, tarjetaId, consulta) };
+  }
+
+  @Get('cuota')
+  @ApiOperation({
+    summary: 'Vista previa de la cuota de una compra o avance antes de guardar',
+    description: `
+Calcula la cuota estimada y el mes del último pago de una compra o un avance que el usuario **todavía no guardó** (RF-27, CU-14 y CU-15), para mostrarlos en el resumen previo. **Requiere sesión:** header \`Authorization: Bearer <accessToken>\`.
+
+**Reglas a tener en cuenta**
+- **Es una vista previa sin efectos:** no guarda compra, avance ni transacción, no cambia nada en la base y se puede repetir con cada cambio del formulario. No lleva \`Idempotency-Key\` ni \`X-Zona-Horaria\`; si llegan, se ignoran.
+- **Usa la tasa y la bandera actuales de la tarjeta**, las mismas que copiarán \`POST …/compras\` y \`POST …/avances\` al guardar (la respuesta las devuelve en \`tasaEAAplicada\` y \`cuotaUnicaSinInteres\`). El cliente no elige la tasa: \`tasaEA\`, \`tasaEAAplicada\` o \`cuotaUnicaSinInteres\` en la query responden \`400\`. Cambiar la tasa de la tarjeta después no recalcula las compras ya guardadas.
+- **Fórmula:** \`i = (1 + EA)^(1/12) − 1\` y \`cuota = V·i / (1 − (1 + i)^(−n))\`; es \`V / n\` si la tasa es 0 o si es una sola cuota en una tarjeta con \`cuotaUnicaSinInteres\`. La \`cuota\` llega **sin redondear** (RNF-11) y \`mesUltimoPago\` es \`YYYY-MM\`: el mes de \`primerPago\` más \`cuotas − 1\` meses.
+- **Query, los tres obligatorios:** \`valor\` es un decimal con punto (\`1254700\`, \`100.5\`), finito y mayor que cero; \`cuotas\` es un entero de 1 a 60; \`primerPago\` es \`YYYY-MM\` o una fecha real \`YYYY-MM-DD\` (solo se toma el mes, sin restricción respecto de hoy). No se aceptan comas, signos, notación científica ni parámetros repetidos, y cualquier otro parámetro responde \`400\`.
+- **Orden de las comprobaciones:** sesión (\`401\`), formato del id y de la query (\`400\`) y, por último, la tarjeta (\`404\`): una consulta inválida no revela si la tarjeta existe.
+- Una tarjeta ajena o inexistente responde \`404\` con el mismo mensaje, nunca \`403\`.
+`.trim(),
+  })
+  @ApiOkResponse({
+    type: VistaPreviaCuotaRespuestaDto,
+    description: 'La cuota estimada, el mes del último pago y la tasa y la bandera actuales de la tarjeta.',
+  })
+  @RespuestaInvalida(
+    '`tarjetaId` no es válido, falta `valor`, `cuotas` o `primerPago`, alguno es inválido o está repetido, o se envió un parámetro desconocido. `message` es un arreglo con un texto por problema que empieza por el nombre del parámetro.',
+  )
+  @RespuestasComunes()
+  @ApiNotFoundResponse({
+    type: ErrorTarjetaNoEncontradaDto,
+    description: 'La tarjeta de la ruta no existe o es de otro usuario (`Tarjeta no encontrada`).',
+  })
+  vistaPrevia(
+    @UsuarioActual() usuarioId: string,
+    @Param() { tarjetaId }: TarjetaIdParamDto,
+    @Query() consulta: VistaPreviaCuotaQueryDto,
+  ): Promise<VistaPreviaCuotaRespuestaDto> {
+    return this.compras.vistaPrevia(usuarioId, tarjetaId, consulta);
   }
 
   @Get('compras/:id')

@@ -115,6 +115,31 @@ export const compraEsperada = (parcial: Record<string, unknown> = {}) => ({
 /** Cuota de la compra de referencia de la hoja del promotor ($1.254.700, 12 cuotas, 29,21 % E.A.). */
 export const CUOTA_REFERENCIA = 119802.1331718775;
 
+/** Los cuatro campos que devuelve la vista previa de la cuota (sin `id`, `usuarioId`, `_id` ni `__v`), paquete 5.2.6. */
+export const CLAVES_DE_LA_VISTA_PREVIA = [
+  'cuota',
+  'cuotaUnicaSinInteres',
+  'mesUltimoPago',
+  'tasaEAAplicada',
+];
+
+/**
+ * Query de la vista previa de la cuota: la consulta base ($1.254.700, 12 cuotas, `2026-12`) con los cambios dados.
+ * Cada valor se codifica para que llegue al servidor tal cual (`+5`, `1,5`…); un valor `undefined` quita el parámetro.
+ */
+export const consultaCuota = (
+  cambios: Record<string, string | number | undefined> = {},
+): string =>
+  Object.entries({
+    valor: 1254700,
+    cuotas: 12,
+    primerPago: '2026-12',
+    ...cambios,
+  })
+    .filter(([, valor]) => valor !== undefined)
+    .map(([nombre, valor]) => `${nombre}=${encodeURIComponent(String(valor))}`)
+    .join('&');
+
 /** `toBeCloseTo` con los decimales dados, comprobando antes que sea un número. */
 export const cerca = (actual: unknown, esperado: number, decimales = 4) => {
   expect(typeof actual).toBe('number');
@@ -204,6 +229,12 @@ export interface EntornoCompras {
   eliminarCompra(
     tarjetaId: string,
     id: string,
+    opciones?: Opciones,
+  ): request.Test;
+  /** `GET /tarjetas/:tarjetaId/cuota` con la query ya armada (ver `consultaCuota`); sin ella, sin query. */
+  vistaPreviaCuota(
+    tarjetaId: string,
+    consulta?: string,
     opciones?: Opciones,
   ): request.Test;
   editarTarjeta(id: string, cuerpo: unknown, opciones?: Opciones): request.Test;
@@ -444,6 +475,13 @@ export function usarEntornoCompras(): EntornoCompras {
         enviar(
           'delete',
           `/tarjetas/${tarjetaId}/compras/${id}`,
+          undefined,
+          opciones,
+        ),
+      vistaPreviaCuota: (tarjetaId: string, texto = '', opciones?: Opciones) =>
+        enviar(
+          'get',
+          `/tarjetas/${tarjetaId}/cuota${consulta(texto)}`,
           undefined,
           opciones,
         ),

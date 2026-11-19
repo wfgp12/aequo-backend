@@ -13,6 +13,8 @@ import type { CompraRespuestaDto } from './dto/compra-respuesta.dto.js';
 import { type CrearAvanceDto, DESCRIPCION_AVANCE } from './dto/crear-avance.dto.js';
 import type { CrearCompraDto } from './dto/crear-compra.dto.js';
 import type { ListarComprasQueryDto } from './dto/listar-compras-query.dto.js';
+import type { VistaPreviaCuotaQueryDto } from './dto/vista-previa-cuota-query.dto.js';
+import type { VistaPreviaCuotaRespuestaDto } from './dto/vista-previa-cuota-respuesta.dto.js';
 import type { TarjetaCreditoDocument } from './tarjeta-credito.schema.js';
 import { TarjetasService } from './tarjetas.service.js';
 import { validarCuerpo } from './validar-cuerpo.js';
@@ -156,6 +158,26 @@ export class ComprasService {
       })
       .sort({ fecha: -1, createdAt: -1, _id: -1 });
     return compras.map(aCompraRespuesta);
+  }
+
+  /**
+   * La cuota y el mes del último pago de una compra o avance que aún no se guarda, con la tasa y la bandera actuales
+   * de la tarjeta (las que copiaría al guardarse). Solo lee la tarjeta: no escribe ni guarda nada en caché.
+   */
+  async vistaPrevia(
+    usuarioId: string,
+    tarjetaId: string,
+    { valor, cuotas, primerPago }: VistaPreviaCuotaQueryDto,
+  ): Promise<VistaPreviaCuotaRespuestaDto> {
+    const tarjeta = await this.tarjetas.obtenerPropia(usuarioId, tarjetaId);
+    const compra = { valor: Number(valor), cuotas: Number(cuotas) };
+    const { tasaEA: tasaEAAplicada, cuotaUnicaSinInteres } = tarjeta;
+    return {
+      cuota: calcularCuota({ ...compra, tasaEAAplicada, cuotaUnicaSinInteres }),
+      mesUltimoPago: calcularMesUltimoPago(new Date(primerPago), compra.cuotas).toISOString().slice(0, 7),
+      tasaEAAplicada,
+      cuotaUnicaSinInteres,
+    };
   }
 
   async obtener(usuarioId: string, tarjetaId: string, id: string) {
