@@ -11,11 +11,14 @@ import {
 } from '@nestjs/swagger';
 import { UsuarioActual } from '../auth/decoradores.js';
 import { ErrorConflictoDto, ErrorTarjetaNoEncontradaDto } from '../common/dto/error-respuesta.dto.js';
+import { ApiZonaHoraria, ZonaHoraria } from '../common/zona-horaria.js';
 import { Idempotente } from '../idempotencia/idempotente.decorator.js';
 import { ActualizarTarjetaDto } from './dto/actualizar-tarjeta.dto.js';
 import { CrearTarjetaDto } from './dto/crear-tarjeta.dto.js';
 import { ListarTarjetasQueryDto } from './dto/listar-tarjetas-query.dto.js';
-import { IdTarjetaParamDto } from './dto/parametros.dto.js';
+import { IdTarjetaParamDto, TarjetaIdParamDto } from './dto/parametros.dto.js';
+import { ProyeccionQueryDto } from './dto/proyeccion-query.dto.js';
+import { ProyeccionRespuestaDto } from './dto/proyeccion-respuesta.dto.js';
 import { TarjetaRespuestaDto } from './dto/tarjeta-respuesta.dto.js';
 import { RespuestaInvalida, RespuestaLista, RespuestasComunes } from './respuestas-api.js';
 import { TarjetasService } from './tarjetas.service.js';
@@ -68,6 +71,48 @@ Devuelve una tarjeta propia por su id. **Requiere sesión:** header \`Authorizat
   @ApiNotFoundResponse(NO_ENCONTRADA)
   obtener(@UsuarioActual() usuarioId: string, @Param() { id }: IdTarjetaParamDto): Promise<TarjetaRespuestaDto> {
     return this.tarjetas.obtener(usuarioId, id);
+  }
+
+  @Get(':tarjetaId/proyeccion')
+  @ApiZonaHoraria()
+  @ApiOperation({
+    summary: 'Total del mes, saldo pendiente y proyección de pagos de una tarjeta',
+    description: `
+Calcula lo que el usuario debe pagar por una tarjeta propia (RF-30, RF-31, CU-17): el **total estimado del mes de referencia**, el **saldo pendiente** después de pagarlo y la **proyección** de los meses siguientes. **Requiere sesión:** header \`Authorization: Bearer <accessToken>\`.
+
+**Qué trae la respuesta**
+- El nivel superior es el **mes de referencia** (\`mes\`, \`cuotas\`, \`cargosFijos\`, \`total\`, \`saldoPendiente\`) con el \`tarjetaId\`. \`proyeccion\` trae los meses **siguientes**, cada uno con las mismas cinco cifras. Los montos llegan **sin redondear** (RNF-11): el cliente redondea al mostrarlos.
+- \`total\` = \`cuotas\` + \`cargosFijos\`. \`cuotas\` es la suma de las cuotas vigentes de todas las compras y avances de la tarjeta; \`cargosFijos\`, la suma de sus cargos fijos activos.
+
+**Reglas a tener en cuenta**
+- **Vigencia:** una compra o avance aporta su cuota al mes \`M\` si \`primerPago ≤ M ≤ mesUltimoPago\`, ambos extremos incluidos y comparando meses, no días. La \`fecha\` de la compra no influye (solo decide el gasto por categoría).
+- **Cuota:** cada compra usa **su propia** \`tasaEAAplicada\` y \`cuotaUnicaSinInteres\`, copiadas al registrarla, así que cambiar la tasa de la tarjeta no recalcula las anteriores. \`i = (1 + EA)^(1/12) − 1\` y \`cuota = V·i / (1 − (1 + i)^(−n))\`; es \`V / n\` si la tasa es 0 o si es una sola cuota en una tarjeta con \`cuotaUnicaSinInteres\`.
+- **\`saldoPendiente\`:** suma de las cuotas, **con sus intereses**, de todos los meses **posteriores** al de cada fila. No es el capital adeudado, no incluye cargos fijos (no son una deuda: no tienen fin), no descuenta pagos y cuenta completas las compras cuyo primer pago todavía no llega. La última fila termina en \`0\`.
+- **Cargos fijos:** los activos se repiten igual en **cada** mes proyectado, pero no alargan la proyección. El cargo no guarda fechas ni historial: un cargo activo hoy se aplica también a meses pasados.
+- **\`proyeccion\`:** empieza en el mes siguiente al de referencia, es **contigua** (un mes sin cuotas aparece con solo los cargos fijos) y termina en el \`mesUltimoPago\` más lejano. Es \`[]\` si no queda ninguna cuota posterior. No hay tope ni paginación.
+- **Tarjeta vacía:** sin compras ni cargos activos todo vale 0 y \`proyeccion\` es \`[]\`; no es un error.
+- **No considera pagos de la tarjeta:** el total estimado y el saldo salen solo de compras, avances y cargos (la comparación con lo pagado llega con RF-32).
+- **Query:** \`mes\` es opcional, \`YYYY-MM\` y de cualquier año o mes; sin él se usa el mes actual según el header \`X-Zona-Horaria\` (UTC si no se envía). \`mes\` repetido o cualquier otro parámetro responde \`400\`.
+- Es una lectura sin efectos: no guarda nada, no usa caché y no lleva \`Idempotency-Key\`.
+- **Orden de las comprobaciones:** sesión (\`401\`), formato de \`tarjetaId\`, de \`mes\` y de \`X-Zona-Horaria\` (\`400\`) y, por último, la tarjeta (\`404\`, igual para una ajena o inexistente, nunca \`403\`).
+`.trim(),
+  })
+  @ApiOkResponse({
+    type: ProyeccionRespuestaDto,
+    description: 'El total del mes de referencia, su saldo pendiente y la proyección de los meses siguientes.',
+  })
+  @RespuestaInvalida(
+    '`tarjetaId` no es válido, `mes` no es `YYYY-MM` o está repetido, `X-Zona-Horaria` no es una zona IANA válida o se envió un parámetro desconocido. `message` es un arreglo con un texto por problema.',
+  )
+  @RespuestasComunes()
+  @ApiNotFoundResponse(NO_ENCONTRADA)
+  proyectar(
+    @UsuarioActual() usuarioId: string,
+    @Param() { tarjetaId }: TarjetaIdParamDto,
+    @Query() consulta: ProyeccionQueryDto,
+    @ZonaHoraria() zona: string,
+  ): Promise<ProyeccionRespuestaDto> {
+    return this.tarjetas.proyectarPagos(usuarioId, tarjetaId, consulta, zona);
   }
 
   @Post()

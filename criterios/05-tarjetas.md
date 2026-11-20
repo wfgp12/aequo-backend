@@ -2395,3 +2395,450 @@ Todos los `400` traen el formato de error Nest `{ statusCode, message, error }`,
 ### Criterios con «Pendiente de decisión»
 
 Ninguno. El desarrollador aprobó el 2026-11-19 las decisiones D1 a D14 (D10 sin el criterio de lecturas) y, con ellas, todos los criterios de esta sección. Reglas que dependen de ellas: D1 (ruta de todos los criterios), D2 (nombres de la query), D3 (CA-RF27-54 y 55), D4 (CA-RF27-39, 53, 56 y 57), D5 (forma de la respuesta de todos los criterios, en especial 39 y 45), D6 (CA-RF27-59), D7 (CA-RF27-61, 62 y 64), D8 (CA-RF27-50), D9 (CA-RF27-48), D10 (CA-RF27-46, 49 y 52), D12 (los IDs) y D13 (CA-RF27-44 y 54).
+
+---
+
+## Paquete 5.3.1 — Total del mes y proyección por tarjeta (RF-30, RF-31)
+
+Estado: Aprobado por el desarrollador el 2026-11-19
+
+### Alcance
+
+Entra el **cálculo y la lectura** de lo que el usuario debe pagar por cada tarjeta: (1) el **total estimado del mes** (RF-30), que es la suma de las **cuotas vigentes** de sus compras y avances más sus **cargos fijos activos**; (2) el **saldo pendiente después del pago del mes** y (3) la **proyección mensual** de los meses siguientes hasta la última cuota registrada (RF-31). Cada compra aporta su propia cuota con **su** `tasaEAAplicada` y **su** `cuotaUnicaSinInteres`, usando las funciones ya existentes de `src/tarjetas/cuota-credito.ts` (`calcularCuota`, `calcularMesUltimoPago`); todo sin redondear (RNF-11): el cliente redondea al mostrar. Para que el frontend pueda mostrarlo (paquete 5.3.3), entra también **un endpoint de lectura**, `GET /tarjetas/:tarjetaId/proyeccion?mes` (D1).
+
+**No** entran: el pago de la tarjeta, su comparación con el total estimado y el campo «pagado» (RF-32, paquete 5.3.2: este paquete **no considera ningún pago**, D8); guardar nada (la consulta no escribe); cupo, día de corte o día de pago (el esquema no los guarda); intereses de mora ni comisiones fuera de los cargos fijos; el cronograma de cada compra por separado; el CRUD de compras, avances y cargos (ya hecho en 5.1.2 y 5.2.3).
+
+### Fuentes
+
+- **RF-30 y RF-31 (Especificación de Requisitos):** RF-30, «visualizar por cada tarjeta el total estimado a pagar en el mes, compuesto por las cuotas vigentes y los cargos fijos activos». RF-31, «visualizar la proyección de pagos de cada tarjeta para los meses siguientes, hasta la última cuota registrada, junto con el saldo pendiente después del pago del mes». RNF-11: los cálculos financieros viven en el backend con precisión completa y se redondea solo al presentar.
+- **CU-17 (Documento de Diseño Técnico):** el usuario abre una tarjeta; el sistema calcula el total del mes (cuotas vigentes más cargos fijos activos), muestra el saldo pendiente después del pago del mes y muestra la proyección por mes hasta la última cuota registrada. Flujo alternativo 2a: «la tarjeta no tiene compras ni cargos: el total del mes es cero». CU-14 y CU-15 (postcondición): la compra y el avance «entran en la proyección de la tarjeta».
+- **Sección 2.3 del Documento de Diseño Técnico y ADR-014 (`CLAUDE.md` sección 5):** «Proyección de tarjetas: suma por mes las cuotas vigentes de cada compra y los cargos recurrentes activos de la tarjeta»; la cuota es `V·i / (1 − (1 + i)^(−n))`, o `V / n` con tasa cero o con una sola cuota en una tarjeta con `cuotaUnicaSinInteres`; la tasa se copia en la compra (`tasaEAAplicada`), así que cambiar la de la tarjeta no recalcula compras anteriores; una compra con tarjeta no afecta el balance el día de la compra (este paquete no toca el balance).
+- **Diccionario de la EDT, 5.3.1:** «Servicio de proyección con su suite de pruebas unitarias»; aceptación: «la proyección coincide con la de la hoja de cálculo del promotor para los mismos datos». `CLAUDE.md` lista `TarjetasService.proyectarPagos(tarjetaId)`.
+- **Código ya en `develop`:** `calcularCuota` y `calcularMesUltimoPago` (`cuota-credito.ts`); esquemas `CompraCredito` (`primerPago` siempre día 1 UTC, `cuotas` 1 a 60, `tipo` COMPRA o AVANCE) y `CargoRecurrente` (`activo`, `valor` mayor que 0, sin fecha de inicio ni fin); `TarjetasService.obtenerPropia` (404 de tarjeta ajena o inexistente); `TarjetaIdParamDto`; `MesCalendario`; `@ZonaHoraria()`, `ApiZonaHoraria` y el patrón de `GET /ahorro/progreso` (`mes` opcional `YYYY-MM`, mes actual según `X-Zona-Horaria`); `ValidationPipe` global estricto.
+- **Criterios ya aprobados que este paquete reutiliza:** 5.2.2 (cálculo y valores de referencia), 5.2.3 (compras: `primerPago` y `fecha` sin restricción respecto de hoy, avances como compras a cuotas), 5.2.6 (patrón de un `GET` de cálculo sin efectos: formato de error Nest, `message` arreglo con un texto por problema que empieza por el nombre del campo, `404 Tarjeta no encontrada` nunca `403`, `400` antes que `404`, sin `Idempotency-Key`).
+
+### Valores de referencia y cómo se obtuvieron
+
+- **De la hoja del promotor:** solo uno: $1.254.700 a 12 cuotas con E.A. 29,21 % → cuota de $119.802,13 (`119802.1331718775` sin redondear). La hoja de Numbers **no está** en el repositorio ni en `../docs`; el resto de los valores no vienen de ella. Lo que queda **por confirmar con la hoja** está en el apartado final.
+- **Calculados por el tester con un cálculo aparte del código del repo** (Python con aritmética decimal de 50 dígitos, sin usar `cuota-credito.ts`): la cuota con la fórmula de ADR-014 y, como segundo método independiente, una búsqueda binaria de la cuota que deja el saldo en cero tras `n` pagos (`saldo = saldo · (1 + i) − cuota`); coinciden en 30 decimales. Las sumas, los totales y los saldos se calcularon con esas cuotas. Cuotas con E.A. 29,21 %: A = $1.254.700 a 12 → `119802.1331718775`; B = $500.000 a 6 → `89741.08506207`; C = $80.000 a 1 → `81726.83193074`; D = $240.000 a 3 → `83478.24716790`; E = $100.000 a 2 → `51624.66686647`; con E.A. 31 %: F = $1.254.700 a 12 → `120662.17031426`; con tasa 0: G = $120.000 a 12 → `10000`; con la bandera: $80.000 a 2 cuotas (la bandera solo exime la cuota única) → `41299.733493`; $500.000 a 3 cuotas → `173913.014933`. Los valores de A, B, C, F, G, $80.000 a 2 y $500.000 a 3 ya estaban en los criterios aprobados de 5.2.2 y 5.2.6.
+- **Tolerancia al verificar:** el valor de la hoja con 2 decimales (`toBeCloseTo(119802.13, 2)`); todos los demás con 6 decimales (`toBeCloseTo(x, 6)`), porque las sumas llegan a unos pocos millones y la doble precisión conserva más de 9 decimales a esa magnitud. Nunca se compara contra un valor redondeado al peso: nada se redondea.
+
+### Datos de las pruebas
+
+- **Tarjetas del usuario A:** «Visa» (`tasaEA` 0,2921, `cuotaUnicaSinInteres` `false`), «Débito» (0,2921, `true`) y «Cero» (tasa 0); un segundo usuario B con sus propias tarjetas.
+- **Compras (en «Visa» salvo que se diga otra):** A = compra $1.254.700 a 12 cuotas, `primerPago` 2026-12 (vigente 2026-12 a 2027-11); B = avance $500.000 a 6 cuotas, 2026-12 (2026-12 a 2027-05); C = compra $80.000 a 1 cuota, 2026-12 (solo 2026-12); D = compra $240.000 a 3 cuotas, 2027-02 (2027-02 a 2027-04, **futura** respecto de 2026-12); E = compra $100.000 a 2 cuotas, 2026-09 (2026-09 y 2026-10, **terminada** en 2026-12); F = compra $1.254.700 a 12 cuotas con tasa 0,31, 2026-12; G = compra $120.000 a 12 cuotas con tasa 0, 2026-12.
+- **Cargos fijos de «Visa»:** «Netflix» $40.000 activo, «Seguro» $15.000 activo y «Gimnasio» $60.000 **inactivo**: los activos suman $55.000.
+- **Escenario base** = «Visa» con A, B y C y los tres cargos. Con él, mes a mes (las cuotas ya incluyen la tasa de cada compra; `total` = `cuotas` + 55.000; `saldoPendiente` = suma de las cuotas de los meses **posteriores**):
+
+| Mes | `cuotas` | `total` | `saldoPendiente` |
+|---|---|---|---|
+| 2026-12 (referencia) | 291270.05016469 | 346270.05016469 | 1766528.890201 |
+| 2027-01 | 209543.21823395 | 264543.21823395 | 1556985.671967 |
+| 2027-02 | 209543.21823395 | 264543.21823395 | 1347442.453733 |
+| 2027-03 | 209543.21823395 | 264543.21823395 | 1137899.235499 |
+| 2027-04 | 209543.21823395 | 264543.21823395 | 928356.017265 |
+| 2027-05 | 209543.21823395 | 264543.21823395 | 718812.799031 |
+| 2027-06 | 119802.13317188 | 174802.13317188 | 599010.665859 |
+| 2027-07 | 119802.13317188 | 174802.13317188 | 479208.532688 |
+| 2027-08 | 119802.13317188 | 174802.13317188 | 359406.399516 |
+| 2027-09 | 119802.13317188 | 174802.13317188 | 239604.266344 |
+| 2027-10 | 119802.13317188 | 174802.13317188 | 119802.133172 |
+| 2027-11 | 119802.13317188 | 174802.13317188 | 0 |
+
+Comprobaciones aritméticas del tester: la suma de todas las cuotas del escenario es `2057798.94036569` (12·A + 6·B + 1·C); el saldo de 2026-12 es esa suma menos la cuota de 2026-12, `1766528.890201` (= 11·A + 5·B).
+
+### Contrato de nombres (aprobado, D7)
+
+- **Función pura** en `src/tarjetas/proyeccion-tarjeta.ts`, sin Nest, Mongoose ni base de datos: `calcularProyeccion({ mes, compras, cargos })`.
+  - `mes`: texto `YYYY-MM`, el mes de referencia.
+  - `compras`: arreglo de objetos con `valor`, `cuotas`, `tasaEAAplicada`, `cuotaUnicaSinInteres` (los de `calcularCuota`) y `primerPago` (`Date`, día 1 UTC). Solo las de **una** tarjeta; cualquier otra propiedad se ignora.
+  - `cargos`: arreglo de objetos con `valor` y `activo`; la función descarta los inactivos.
+  - Devuelve `{ mes, cuotas, cargosFijos, total, saldoPendiente, proyeccion }`, con `proyeccion` = arreglo de `{ mes, cuotas, cargosFijos, total, saldoPendiente }` (los meses **siguientes**, en orden ascendente y sin saltos). Sin `tarjetaId`: eso lo agrega el servicio.
+  - Errores: `RangeError` con el nombre del campo al inicio del mensaje (`mes` mal formado; una compra inválida lanza el error de `calcularCuota` o `calcularMesUltimoPago`), como en 5.2.2.
+- **HTTP:** se prueba solo por la API con las colecciones en memoria del arnés `test/tarjetas/arnes-compras.ts` (ya registra tarjetas, cargos, compras, transacciones, categorías e idempotencia). El servicio, el controlador y los DTO los nombra el implementador (D1); `CLAUDE.md` sugiere `TarjetasService.proyectarPagos`.
+
+### Contrato HTTP (aprobado, D1, D5, D6) (lo consumirá el frontend en 5.3.3)
+
+Requiere `Authorization: Bearer <accessToken>`.
+
+| Operación | Ruta | Query | Éxito |
+|---|---|---|---|
+| Total del mes, saldo y proyección | `GET /tarjetas/:tarjetaId/proyeccion` | `mes` opcional, `YYYY-MM` (sin él, el mes actual según `X-Zona-Horaria`, UTC si no se envía) | `200` + el objeto de abajo |
+
+```json
+{
+  "tarjetaId": "665f1c2a9b1e4a0012a3b4c5",
+  "mes": "2026-12",
+  "cuotas": 291270.05016469,
+  "cargosFijos": 55000,
+  "total": 346270.05016469,
+  "saldoPendiente": 1766528.890201,
+  "proyeccion": [
+    { "mes": "2027-01", "cuotas": 209543.21823395, "cargosFijos": 55000, "total": 264543.21823395, "saldoPendiente": 1556985.671967 }
+  ]
+}
+```
+
+Los campos del nivel superior son el **mes de referencia** (RF-30 y el saldo de RF-31); `proyeccion` trae los meses **siguientes** (RF-31), uno por mes, sin saltos, hasta el último mes con cuotas, cada uno con la misma forma que el nivel superior (sin `tarjetaId`). Todos los montos son números **sin redondear**; `mes` es `YYYY-MM`. Sin `id`, `usuarioId`, `_id` ni `__v`. Errores: `400` (`mes`, parámetro no declarado, `tarjetaId` o `X-Zona-Horaria` inválidos), `401` (sin sesión), `404 Tarjeta no encontrada` (inexistente o de otro usuario), formato Nest `{ statusCode, message, error }` con `message` arreglo en los `400`. Sin `Idempotency-Key`. No guarda nada.
+
+### Decisiones aprobadas por el desarrollador (2026-11-19)
+
+El desarrollador aprobó la opción recomendada en las 11 decisiones (D2 = suma de las cuotas de los meses posteriores; D3 = los cargos activos se repiten en cada mes proyectado). Ninguna de estas reglas está definida en un RF ni en un ADR, salvo donde se cita; cada una dice su respaldo y la alternativa descartada. Los criterios de abajo ya las reflejan.
+
+> Decisión D1 — **alcance: servicio y endpoint de lectura.** Opciones: (A) solo el servicio y la función pura, sin ruta; (B) servicio, función pura y `GET /tarjetas/:tarjetaId/proyeccion?mes`; (C) dos rutas, `…/total-mes` y `…/proyeccion`. **Recomendado: B.** Fuente: la EDT no tiene otro paquete del backend que exponga el cálculo (5.3.2 es el pago) y 5.3.3 (frontend) necesita los números calculados por el backend (RNF-11); el mismo criterio se aplicó en 4.3.1 (P2) y 5.2.6. CU-17 trae las tres cosas al abrir una tarjeta, así que una sola llamada evita dos viajes y dos lecturas de las mismas compras. La clase que aloja la ruta (`TarjetasController` o un controlador propio) no la ve ninguna prueba; el método sugerido es `TarjetasService.proyectarPagos`. Con A, el paquete 5.3.3 quedaría bloqueado.
+
+> Decisión D2 — **qué es «saldo pendiente después del pago del mes».** RF-31 no lo define. Opciones: (A) **capital** pendiente, amortizado con la tasa de cada compra (lo que se le debe al banco sin intereses futuros); (B) **suma de las cuotas de los meses posteriores** al de referencia (lo que todavía saldrá del bolsillo por cuotas ya registradas, con sus intereses); (C) devolver ambos. **Recomendado: B.** Razones: es exactamente lo que se ve en la proyección (el saldo después del mes `M` es la suma de las cuotas de los meses siguientes, así que el cliente puede verificar a la vista que cuadra y que el último mes termina en 0); no necesita casos especiales con tasa 0 ni con `cuotaUnicaSinInteres` (la cuota ya vale `V / n` y el saldo es `(n − k)·V / n`); se parece a RF-38, donde el saldo pendiente de una deuda incluye los intereses; y no exige un cálculo de amortización. Cifras para decidir, con la compra de referencia A después del primer pago: (A) capital `1161981.067122` frente a (B) `11·A = 1317823.464891`; en el escenario base a 2026-12, `1583032.681627` frente a `1766528.890201`. **Reglas que acompañan a B:** cuentan las cuotas de **todas** las compras y avances que todavía no se pagan, incluidas las de una compra cuyo `primerPago` es posterior al mes de referencia (la deuda ya existe); una compra terminada aporta 0; **no** incluye cargos fijos (no son una deuda: son indefinidos); y **no** descuenta pagos de la tarjeta (D8). Esto queda por contrastar con la hoja del promotor.
+
+> Decisión D3 — **cargos fijos en la proyección.** Opciones: (A) los cargos activos se **repiten cada mes** de la proyección, hasta el último mes con cuotas (no la extienden); (B) los cargos cuentan solo en el mes de referencia y la proyección lleva solo cuotas; (C) se repiten un número fijo de meses (p. ej. 12) aunque no queden cuotas. **Recomendado: A.** Fuente: el Documento de Diseño Técnico (sección 2.3) dice que la proyección «suma por mes las cuotas vigentes de cada compra y los cargos recurrentes activos de la tarjeta», y RF-29 define los cargos como **mensuales**; RF-31 pide proyectar «hasta la última cuota registrada», no hasta el último cargo (los cargos no tienen fin), por eso no la extienden: una tarjeta con solo cargos tiene `proyeccion` vacía. **Límite conocido:** el cargo no guarda fecha de inicio, de fin ni historial de activaciones; un cargo activo **hoy** se aplica a cualquier mes consultado, también a meses pasados (D4).
+
+> Decisión D4 — **qué cuenta como cuota vigente en un mes y qué mes se puede consultar.** Opciones para la vigencia: (A) una compra aporta su cuota al mes `M` si `primerPago ≤ M ≤ mesUltimoPago` (ambos extremos incluidos, comparando meses, no días); (B) también el mes de la `fecha` de la compra. Para el mes de referencia: (a) cualquier mes `YYYY-MM`, pasado, actual o futuro; (b) solo el actual o futuros (meses pasados `400`). **Recomendado: A y (a).** Fuente: `primerPago` y `mesUltimoPago` son los datos que RF-26 y RF-27 definen para la cuota; la fecha de la compra solo decide el mes del **gasto por categoría** (ADR-014), no cuándo se paga. Una compra con `primerPago` posterior al mes de referencia no aporta al total del mes pero sí a la proyección y al saldo; una ya terminada no aporta a nada. Se acepta un mes pasado porque 5.3.3 mostrará «la comparación con lo pagado» de meses anteriores y porque `GET /ahorro/progreso` y los reportes ya aceptan cualquier mes; con la limitación de D3 para los cargos.
+
+> Decisión D5 — **mes de referencia y validaciones de la query.** Opciones: (A) `mes` opcional `YYYY-MM`; sin él, el mes actual según `X-Zona-Horaria` (UTC si no se envía), con las mismas reglas que `GET /ahorro/progreso`; una zona inválida es `400` siempre, incluso con `mes`; (B) `mes` obligatorio; (C) un nombre distinto (`periodo`). **Recomendado: A.** Fuente: es la convención del repo (reportes, ahorro) y el frontend ya usa ese header; CU-17 dice «el total del mes» al abrir la tarjeta, sin pedir un mes, así que el caso normal no envía parámetros. Además: `mes` repetido y cualquier parámetro no declarado (`desde`, `hasta`, `periodo`, `tasaEA`, `usuarioId`…) responden `400` con un texto que empieza por su nombre (regla de 5.1.2, 5.2.3 y 5.2.6); un `mes` con otro formato (`2026-1`, `202612`, `2026-12-01`) es `400` con un texto que empieza por `mes`. Sin tope respecto del mes actual.
+
+> Decisión D6 — **forma de la respuesta y desglose.** Opciones: (A) nivel superior = mes de referencia (`mes`, `cuotas`, `cargosFijos`, `total`, `saldoPendiente`) más `proyeccion` con los meses **siguientes** de la misma forma; (B) un objeto anidado `mesActual` y `proyeccion` (misma forma en ambos, un solo DTO); (C) una sola lista `meses` que incluye el de referencia; (D) además, un `detalle` por compra o cargo. **Recomendado: A**, sin `detalle`. Razones: separa `cuotas` y `cargosFijos` porque RF-30 pide un total «compuesto por» ambos; sigue la letra de RF-31 («meses siguientes»); `GET /tarjetas/:id/compras` y `…/cargos` ya listan cada compra y cada cargo con su cuota y su mes del último pago, así que un desglose por compra duplicaría datos que el cliente ya tiene. Nombres: `cuotas` (suma de las cuotas vigentes), `cargosFijos` (suma de los cargos activos), `total` (su suma), `saldoPendiente`. Si se elige B o C, solo cambian las rutas de los campos en las pruebas.
+
+> Decisión D7 — **función pura con nombre fijo, además del endpoint.** Opciones: (A) función pura `calcularProyeccion` en `src/tarjetas/proyeccion-tarjeta.ts` con el contrato de arriba, probada con entradas armadas a mano, más pruebas por HTTP; (B) solo pruebas por HTTP, sin nombres de código; (C) un método de servicio que lee la base y calcula en el mismo lugar. **Recomendado: A.** Fuente: la EDT pide «servicio de proyección con su suite de pruebas unitarias» y que coincida con la hoja de cálculo; 5.2.2 usó el mismo patrón (funciones puras en `cuota-credito.ts`, que `calcularProyeccion` reutiliza) y permite medir con Stryker la lógica sin montar la aplicación. Los criterios marcan su capa: **[función]**, **[HTTP]** o **[función + HTTP]**; los de cálculo se prueban sobre la función y un subconjunto representativo también por HTTP (lo que prueba que el servicio carga bien las compras y cargos de la tarjeta). Con B habría que probar toda la matriz de cálculo por HTTP (más lento y más largo de armar).
+
+> Decisión D8 — **sin pagos, sin efectos, sin caché y orden de comprobaciones.** Recomendado: (a) no se consideran pagos de la tarjeta (transacciones con `tarjetaId`, `PAGO_TARJETA`): el total estimado y el saldo salen solo de compras, avances y cargos; RF-32 (5.3.2) añadirá la comparación con lo pagado, probablemente como campos nuevos sin cambiar los existentes; (b) la consulta no escribe en ninguna colección, no guarda caché y refleja de inmediato un cambio en compras, avances, cargos o tarjeta; (c) no exige `Idempotency-Key` ni lo usa (es un `GET`, `CLAUDE.md` sección 6), aun con `IDEMPOTENCIA_OBLIGATORIA=true`; (d) orden: `401` sin sesión antes que todo; luego el formato de `tarjetaId`, de `mes` y de `X-Zona-Horaria` (`400`); luego la tarjeta (`404 Tarjeta no encontrada`, mensaje fijo, igual para ajena e inexistente, nunca `403`). Una tarjeta ajena con `mes` inválido responde `400` (no revela si existe). Fuente: D7 y D10 de 5.2.6, `CLAUDE.md` secciones 5 y 6. Alternativa a (a): descontar ya los pagos del saldo (adelanta 5.3.2 y obliga a decidir cómo se asigna un pago a un mes).
+
+> Decisión D9 — **meses sin cuotas, sin tope y sin paginar.** Recomendado: la proyección es **contigua**: desde el mes siguiente al de referencia hasta el `mesUltimoPago` más lejano, aparece cada mes aunque no tenga cuotas (con solo los cargos activos); si no queda ninguna cuota posterior al mes de referencia, `proyeccion` es `[]`. No hay tope de meses ni paginación. Fuente: RF-31 («hasta la última cuota registrada»); `primerPago` no tiene restricción respecto de hoy (D7 de 5.2.3) y las cuotas llegan a 60, así que la lista es larga solo si el usuario registra un `primerPago` muy lejano o consulta un `mes` muy pasado (CA-RF30-23). Alternativas: omitir los meses sin cuotas (rompe la gráfica mensual del front) o limitar a 60 meses (sin fuente; cortaría la regla «hasta la última cuota»).
+
+> Decisión D10 — **numeración y contrato con el frontend.** No existen criterios `CA-RF30-nn` ni `CA-RF31-nn`; recomendado empezar en `01` para cada RF. Los criterios de la consulta HTTP (mes, parámetros, tarjeta, sesión, efectos) se numeran dentro de RF-30, porque es la consulta del total del mes que RF-31 amplía. Al aprobarse, el arquitecto deja en `../coordinacion/contratos/` el contrato para la conformidad del frontend; el Swagger de la ruta será la fuente de verdad una vez implementada.
+
+> Decisión D11 — **valores de referencia por confirmar con la hoja.** Ver el apartado final. Recomendado: aprobar los criterios con los valores calculados aquí (verificados de forma independiente) y, cuando el promotor entregue la hoja, contrastar al menos el escenario base; si algún valor no coincide, se corrige el criterio (con aprobación) antes de implementar, no el código.
+
+---
+
+### RF-30 — Total estimado a pagar en el mes (cuotas vigentes y cargos fijos activos)
+
+Salvo que se diga otra cosa, «consulta» es `GET /tarjetas/<id>/proyeccion?mes=…` para los criterios [HTTP] y `calcularProyeccion({ mes, compras, cargos })` para los criterios [función]; los datos son los de «Datos de las pruebas».
+
+#### El total del mes
+
+#### CA-RF30-01 — El total del mes de la compra de referencia de la hoja del promotor [función + HTTP]
+
+- **Dado** la tarjeta «Visa» (0,2921) con solo la compra A ($1.254.700 a 12 cuotas, `primerPago` 2026-12), sin cargos
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** `cuotas` es 119802,13 (`toBeCloseTo(119802.13, 2)`), `cargosFijos` es 0, `total` es 119802,13 y `mes` es `"2026-12"`
+
+#### CA-RF30-02 — Los montos llegan con precisión completa, sin redondear [función + HTTP]
+
+- **Dado** la tarjeta y la consulta de CA-RF30-01
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** `cuotas` y `total` están dentro de `119802.1331718775` con 6 decimales (`toBeCloseTo(119802.1331718775, 6)`) y **no** son `119802.13` ni `119802`: el redondeo lo hace el cliente al presentar (RNF-11)
+
+#### CA-RF30-03 — Las cuotas de varias compras y avances se suman [función + HTTP]
+
+- **Dado** el escenario base: «Visa» con la compra A, el avance B ($500.000 a 6 cuotas) y la compra C ($80.000 a 1 cuota), todas con `primerPago` 2026-12, y los cargos activos de $55.000
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** `cuotas` es `291270.05016469` (A `119802.1331718775` + B `89741.08506207` + C `81726.83193074`; 6 decimales), `cargosFijos` `55000` y `total` `346270.05016469`; el avance cuenta igual que una compra (RF-28)
+
+#### CA-RF30-04 — Cada compra usa su propia tasa: el cambio de tasa de la tarjeta no recalcula las anteriores [función + HTTP]
+
+- **Dado** «Visa» con la compra A registrada con 0,2921; luego el usuario cambia la tasa de la tarjeta a 0,31 con `PATCH /tarjetas/<visa>` y registra la compra F ($1.254.700 a 12 cuotas, `primerPago` 2026-12), que copia 0,31 (por la función: A con `tasaEAAplicada` 0,2921 y F con 0,31)
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** `cuotas` es `240464.30348614` (A `119802.13317188` con 0,2921 + F `120662.17031426` con 0,31; 6 decimales): la compra anterior conserva su tasa (RF-25, ADR-014)
+
+#### CA-RF30-05 — La bandera de una sola cuota sin interés es la de cada compra [función + HTTP]
+
+- **Dado** la tarjeta «Débito» (0,2921, `cuotaUnicaSinInteres` `true`) con una compra de $80.000 a 1 cuota y otra de $80.000 a 2 cuotas, ambas con `primerPago` 2026-12; y la tarjeta «Visa» (sin la bandera) con una compra de $80.000 a 1 cuota con `primerPago` 2026-12
+- **Cuando** consulta el mes `2026-12` de cada tarjeta, y de «Débito» otra vez después de cambiar su bandera a `false` con `PATCH /tarjetas/<débito>`
+- **Entonces** «Débito» da `cuotas` `121299.733493` (80000 de la cuota única, sin interés, más `41299.733493` de la de 2 cuotas, que sí lleva interés: la bandera solo exime la cuota única) y «Visa» da `81726.831931` (un mes de interés); tras cambiar la bandera, «Débito» sigue dando `121299.733493` (cada compra conserva la suya)
+
+#### CA-RF30-06 — Con tasa cero, las cuotas son el valor entre el número de cuotas [función]
+
+- **Dado** la tarjeta «Cero» (tasa 0) con la compra G ($120.000 a 12 cuotas, `primerPago` 2026-12)
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** `cuotas` es exactamente `10000` y `total` `10000`
+
+#### Los cargos fijos
+
+#### CA-RF30-07 — Los cargos fijos activos suman y los inactivos no [función + HTTP]
+
+- **Dado** «Visa» con la compra A y los cargos «Netflix» $40.000 y «Seguro» $15.000 (activos) y «Gimnasio» $60.000 (inactivo)
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** `cargosFijos` es `55000` y `total` es `cuotas + 55000` (`174802.13317188`; 6 decimales): el cargo inactivo no cuenta; y al activar «Gimnasio» con `PATCH …/cargos/<id>` `{ "activo": true }`, la siguiente consulta da `cargosFijos` `115000`
+
+#### CA-RF30-08 — Una tarjeta solo con cargos fijos [función + HTTP]
+
+- **Dado** «Visa» sin compras, con los cargos activos «Netflix» y «Seguro»
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** `cuotas` es `0`, `cargosFijos` `55000`, `total` `55000`, `saldoPendiente` `0` y `proyeccion` `[]`
+
+#### CA-RF30-09 — Una tarjeta sin compras ni cargos activos: el total es cero [función + HTTP]
+
+- **Dado** una tarjeta recién creada, sin compras ni cargos; y otra solo con cargos inactivos (CU-17, flujo 2a)
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** las dos responden `200` con `cuotas` `0`, `cargosFijos` `0`, `total` `0`, `saldoPendiente` `0` y `proyeccion` `[]` (no es error ni `404`)
+
+#### Qué cuota está vigente
+
+#### CA-RF30-10 — La vigencia incluye el mes del primer pago y el del último [función]
+
+- **Dado** «Visa» solo con la compra A (`primerPago` 2026-12, último pago 2027-11 tras cruzar el año)
+- **Cuando** consulta los meses `2026-11`, `2026-12`, `2027-11` y `2027-12`
+- **Entonces** `cuotas` es `0`, `119802.133172`, `119802.133172` y `0` (la cuota cuenta del mes del primer pago al del último, ambos incluidos)
+
+#### CA-RF30-11 — Una compra con el primer pago en un mes futuro no cuenta todavía [función]
+
+- **Dado** «Visa» con la compra A y la compra D ($240.000 a 3 cuotas, `primerPago` 2027-02)
+- **Cuando** consulta los meses `2026-12`, `2027-01` y `2027-02`
+- **Entonces** `cuotas` es `119802.133172` en los dos primeros (D no cuenta) y `203280.380340` en `2027-02` (A + D `83478.247168`)
+
+#### CA-RF30-12 — Una compra ya terminada no cuenta [función]
+
+- **Dado** «Visa» con la compra E ($100.000 a 2 cuotas, `primerPago` 2026-09, cuotas en 2026-09 y 2026-10) y la compra A
+- **Cuando** consulta los meses `2026-10`, `2026-11` y `2026-12`
+- **Entonces** `cuotas` es `51624.666866` (la segunda cuota de E: en su último mes todavía cuenta), `0` y `119802.133172` (E ya no aparece)
+
+#### CA-RF30-13 — La vigencia la decide el mes del primer pago, no la fecha de la compra [función + HTTP]
+
+- **Dado** una compra de $1.254.700 a 12 cuotas hecha el `2026-12-31` con `primerPago` `2027-01`, y otra igual hecha el `2026-06-15` con `primerPago` `2026-12` (en «Visa»)
+- **Cuando** consulta los meses `2026-12` y `2027-01`
+- **Entonces** la primera no cuenta en `2026-12` y sí en `2027-01`; la segunda cuenta en `2026-12` aunque se hizo seis meses antes (la fecha de la compra solo decide su mes de gasto por categoría, ADR-014)
+
+#### CA-RF30-14 — Se puede consultar un mes pasado [función]
+
+- **Dado** «Visa» con la compra E, la compra A y los cargos activos de $55.000
+- **Cuando** consulta el mes `2026-10`
+- **Entonces** `cuotas` es `51624.666866` (E; A todavía no empieza), `cargosFijos` `55000` y `total` `106624.666866` (los cargos activos hoy se aplican a todo mes: no hay historial de cargos, D3)
+
+#### De dónde salen los datos
+
+#### CA-RF30-15 — Solo cuentan las compras y los cargos de esa tarjeta y de ese usuario [HTTP]
+
+- **Dado** el usuario A con «Visa» (compra A y cargos de $55.000) y «Débito» (una compra de $80.000 a 1 cuota con `primerPago` 2026-12 y un cargo de $20.000), y el usuario B con una tarjeta también llamada «Visa» con la misma compra A y un cargo de $9.000
+- **Cuando** A y B consultan el mes `2026-12` de su propia «Visa»
+- **Entonces** A obtiene `cuotas` `119802.133172` y `cargosFijos` `55000` (sin lo de «Débito» ni lo de B) y B obtiene `cuotas` `119802.133172` y `cargosFijos` `9000` (el usuario sale del JWT)
+
+#### CA-RF30-16 — Los pagos y el dinero recibido de la tarjeta no cambian el total estimado [HTTP]
+
+- **Dado** «Visa» con la compra A y una transacción `PAGO_TARJETA` de $300.000 con `tarjetaId` de «Visa» en 2026-12 (guardada directamente en la colección de transacciones) y el avance B (con su transacción `DINERO_RECIBIDO`)
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** `cuotas`, `total` y `saldoPendiente` son los mismos que sin esa transacción de pago (este paquete no considera pagos: RF-32 es 5.3.2, D8)
+
+#### CA-RF30-17 — Un cambio en las compras, avances o cargos se refleja en la siguiente consulta [HTTP]
+
+- **Dado** el escenario base con la consulta de `2026-12` ya hecha (`total` `346270.05016469`)
+- **Cuando** el usuario desactiva «Netflix» con `PATCH`, elimina la compra C con `DELETE …/compras/<id>` y cambia B a 3 cuotas con `PATCH …/compras/<id>`, y consulta de nuevo
+- **Entonces** `cargosFijos` es `15000`, y `cuotas` es la de A (`119802.133172`) más la de B a 3 cuotas ($500.000, 0,2921: `173913.014933`), es decir `293715.148105`; no hay caché
+
+#### La consulta
+
+#### CA-RF30-18 — La forma exacta de la respuesta [HTTP]
+
+- **Dado** el escenario base
+- **Cuando** consulta `GET /tarjetas/<visa>/proyeccion?mes=2026-12`
+- **Entonces** responde `200` con **exactamente** las claves `tarjetaId` (el id de la tarjeta), `mes`, `cuotas`, `cargosFijos`, `total`, `saldoPendiente` y `proyeccion`; cada elemento de `proyeccion` trae exactamente `mes`, `cuotas`, `cargosFijos`, `total` y `saldoPendiente`; los montos son números (no texto) y `mes` es `YYYY-MM`; sin `id`, `usuarioId`, `_id` ni `__v` en ningún nivel
+
+#### CA-RF30-19 — Sin `mes`, se usa el mes actual en UTC [HTTP]
+
+- **Dado** el reloj en `2026-12-15T12:00:00Z` y el escenario base
+- **Cuando** consulta sin `mes` y sin `X-Zona-Horaria`
+- **Entonces** `mes` es `"2026-12"` y las cifras son las del mes `2026-12` de la tabla
+
+#### CA-RF30-20 — Sin `mes`, el mes actual depende de `X-Zona-Horaria` [HTTP]
+
+- **Dado** el reloj en `2027-01-01T03:00:00Z` (en Bogotá todavía es el 31 de diciembre) y, aparte, en `2026-12-31T20:00:00Z` (en Tokio ya es el 1 de enero)
+- **Cuando** consulta sin `mes`: sin header y con `X-Zona-Horaria: America/Bogota` en el primer instante, y sin header y con `X-Zona-Horaria: Asia/Tokyo` en el segundo
+- **Entonces** `mes` es `"2027-01"` y `"2026-12"` en el primer instante, y `"2026-12"` y `"2027-01"` en el segundo (mismo borde de mes que `GET /ahorro/progreso`)
+
+#### CA-RF30-21 — Con `mes`, la zona no cambia nada; una zona inválida es `400` siempre [HTTP]
+
+- **Dado** el escenario base
+- **Cuando** consulta `?mes=2026-12` con `X-Zona-Horaria: Asia/Tokyo`, y con `X-Zona-Horaria: Zona/Invalida` (con `mes` y sin él)
+- **Entonces** el primero responde `200` con el mismo cuerpo que sin header; los dos con zona inválida responden `400` con un texto que empieza por `X-Zona-Horaria`
+
+#### CA-RF30-22 — `mes` con un formato inválido [HTTP]
+
+- **Dado** «Visa»
+- **Cuando** envía `mes` `2026-13`, `2026-00`, `2026-1`, `202612`, `2026-12-01`, `diciembre`, el texto vacío (`mes=`) y ` 2026-12` (con espacio)
+- **Entonces** cada uno responde `400` en formato Nest con `message` arreglo y un texto que empieza por `mes`, sin calcular nada
+
+#### CA-RF30-23 — Un `mes` muy pasado o muy futuro es válido [HTTP]
+
+- **Dado** el escenario base
+- **Cuando** consulta `mes=2020-01` y `mes=2099-12`
+- **Entonces** las dos responden `200`: en `2020-01`, `cuotas` `0`, `cargosFijos` `55000`, `saldoPendiente` `2057798.940366` (todas las cuotas están por pagar) y `proyeccion` de 94 elementos, de `"2020-02"` a `"2027-11"` (sin tope, D9); en `2099-12`, `cuotas` `0`, `total` `55000`, `saldoPendiente` `0` y `proyeccion` `[]`
+
+#### CA-RF30-24 — Un `mes` repetido se rechaza [HTTP]
+
+- **Dado** «Visa»
+- **Cuando** envía `?mes=2026-12&mes=2027-01`
+- **Entonces** responde `400` con un texto que empieza por `mes` (no se usa «el primero» ni «el último» en silencio)
+
+#### CA-RF30-25 — Parámetros no declarados se rechazan [HTTP]
+
+- **Dado** «Visa»
+- **Cuando** envía `?mes=2026-12` más, cada uno por separado, `desde`, `hasta`, `periodo`, `tasaEA`, `tasaEAAplicada`, `usuarioId`, `tarjetaId` o `foo`
+- **Entonces** cada uno responde `400` con un texto que menciona el nombre del parámetro sobrante (el `ValidationPipe` estricto redacta `property <nombre> should not exist`; el cliente no elige tasas ni usuario)
+
+#### CA-RF30-26 — Tarjeta de otro usuario o inexistente: 404; `tarjetaId` mal formado: 400 [HTTP]
+
+- **Dado** una tarjeta «Visa» del usuario B con compras y cargos, y un id válido que no existe
+- **Cuando** el usuario A consulta cada una (con `mes=2026-12`) y consulta `/tarjetas/no-es-un-id/proyeccion`
+- **Entonces** las dos primeras responden `404` con `Tarjeta no encontrada` (el mismo mensaje, nunca `403`, y sin ninguna cifra de la tarjeta ajena) y la tercera `400` con un texto que empieza por `tarjetaId`
+
+#### CA-RF30-27 — Primero se valida la consulta y después la tarjeta [HTTP]
+
+- **Dado** la tarjeta «Visa» del usuario B
+- **Cuando** el usuario A consulta esa tarjeta con `mes=2026-13` y, aparte, con `mes=2026-12`
+- **Entonces** la primera responde `400` (texto que empieza por `mes`) y la segunda `404 Tarjeta no encontrada` (una consulta inválida no revela si la tarjeta existe, D8)
+
+#### CA-RF30-28 — La ruta exige sesión [HTTP]
+
+- **Dado** una petición sin header `Authorization`, o con un token inválido o vencido
+- **Cuando** consulta `GET /tarjetas/<visa>/proyeccion?mes=2026-12`, y también con la tarjeta de otro usuario y con `mes` inválido
+- **Entonces** todas responden `401` (la sesión se comprueba antes que la consulta y que la tarjeta) y no se calcula nada
+
+#### CA-RF30-29 — La consulta no guarda nada y no usa la idempotencia [HTTP]
+
+- **Dado** el escenario base, una transacción, claves de idempotencia ya guardadas y la variable `IDEMPOTENCIA_OBLIGATORIA` activada
+- **Cuando** consulta varias veces, con y sin `Idempotency-Key`
+- **Entonces** todas responden `200` sin exigir `Idempotency-Key`, sin el header `Idempotent-Replayed` y sin guardar ninguna clave; las colecciones de tarjetas (incluida su `actualizadaEn`), compras, cargos, transacciones e idempotencia quedan **idénticas** a como estaban
+
+#### CA-RF30-30 — Repetir la consulta da la misma respuesta, y responde aunque la base rechace escrituras [HTTP]
+
+- **Dado** el escenario base y, en otra corrida, todas las colecciones configuradas para que **toda escritura falle**
+- **Cuando** envía dos veces la misma consulta
+- **Entonces** las dos respuestas son idénticas y, con las escrituras fallando, también responde `200` con las mismas cifras (la consulta solo lee)
+
+#### CA-RF30-31 — La función rechaza entradas inválidas y no modifica lo que recibe [función]
+
+- **Dado** una compra con `cuotas` `0`, otra con `valor` `-1`, otra con `primerPago` que no es una fecha válida y una consulta con `mes` `2026-13`, `"2026-1"` y `202612` (número)
+- **Cuando** llama a `calcularProyeccion` con cada una
+- **Entonces** lanza `RangeError` con un mensaje que contiene el nombre del campo (`cuotas`, `valor`, `primerPago` y `mes`; el texto completo no se verifica), sin devolver `NaN`; y con una entrada válida, ni `compras` ni `cargos` (ni sus objetos) quedan modificados
+
+---
+
+### RF-31 — Proyección de pagos de los meses siguientes y saldo pendiente
+
+#### La proyección
+
+#### CA-RF31-01 — La proyección de la compra de referencia [función + HTTP]
+
+- **Dado** «Visa» con solo la compra A (`primerPago` 2026-12), sin cargos
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** `proyeccion` tiene **11** elementos, de `"2027-01"` a `"2027-11"` en orden ascendente (con el cruce de año), cada uno con `cuotas` 119802,13 (`toBeCloseTo(119802.13, 2)`), `cargosFijos` 0 y `total` igual a `cuotas`; el último mes es el del último pago de A
+
+#### CA-RF31-02 — Las cuotas de la proyección bajan cuando termina cada compra [función + HTTP]
+
+- **Dado** el escenario base (C termina en 2026-12, B en 2027-05 y A en 2027-11)
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** `proyeccion` tiene 11 elementos y, mes a mes, `cuotas` y `total` son los de la tabla del escenario base: `209543.21823395` y `264543.21823395` de `2027-01` a `2027-05` (A + B; C ya no aparece) y `119802.13317188` y `174802.13317188` de `2027-06` a `2027-11` (solo A); 6 decimales
+
+#### CA-RF31-03 — Los cargos fijos activos se repiten en cada mes proyectado [función]
+
+- **Dado** el escenario base y, aparte, el mismo con «Netflix» y «Seguro» inactivos
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** `cargosFijos` es `55000` en el mes de referencia y en **cada** elemento de `proyeccion` en el primer caso, y `0` en todos en el segundo (D3)
+
+#### CA-RF31-04 — La proyección llega hasta el último pago más lejano y los cargos no la extienden [función]
+
+- **Dado** una tarjeta con la compra A (último pago 2027-11) y la compra D (último pago 2027-04), con cargos activos
+- **Cuando** consulta el mes `2026-12`, y consulta una tarjeta con solo cargos activos y sin compras
+- **Entonces** el último elemento de `proyeccion` es `"2027-11"` (el `mesUltimoPago` más lejano de todas las compras, no el de la última compra registrada) y no hay ningún mes posterior, aunque los cargos no tengan fin; la tarjeta con solo cargos tiene `proyeccion` `[]`
+
+#### CA-RF31-05 — Un mes de referencia en el último pago o después: solo cargos y saldo cero [función]
+
+- **Dado** el escenario base
+- **Cuando** consulta los meses `2027-11` y `2027-12`
+- **Entonces** en `2027-11`, `cuotas` es `119802.133172`, `saldoPendiente` `0` y `proyeccion` `[]` (es el último mes con cuotas); en `2027-12`, `cuotas` `0`, `cargosFijos` `55000`, `total` `55000`, `saldoPendiente` `0` y `proyeccion` `[]`
+
+#### CA-RF31-06 — Un mes de referencia anterior al primer pago: nada vence todavía, todo está por pagar [función]
+
+- **Dado** «Visa» con solo la compra A (`primerPago` 2026-12) y los cargos activos
+- **Cuando** consulta el mes `2026-11`
+- **Entonces** `cuotas` es `0`, `total` `55000`, `saldoPendiente` `1437625.598063` (las 12 cuotas de A) y `proyeccion` tiene 12 elementos, de `"2026-12"` a `"2027-11"`, con `cuotas` `119802.133172` en cada uno
+
+#### CA-RF31-07 — Los meses sin cuotas entre medias aparecen en la proyección [función]
+
+- **Dado** «Visa» solo con la compra D ($240.000 a 3 cuotas, `primerPago` 2027-02) y los cargos activos de $55.000
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** `cuotas` es `0` y `total` `55000`; `proyeccion` tiene 4 elementos: `"2027-01"` (`cuotas` `0`, `total` `55000`: un mes sin cuota que **no** se omite) y `"2027-02"`, `"2027-03"`, `"2027-04"` (`cuotas` `83478.247168`, `total` `138478.247168`); los meses son consecutivos y sin saltos (D9)
+
+#### El saldo pendiente
+
+#### CA-RF31-08 — El saldo después del pago del mes es la suma de las cuotas de los meses siguientes [función + HTTP]
+
+- **Dado** el escenario base
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** `saldoPendiente` es `1766528.890201` (6 decimales; `11·A + 5·B`) y es igual a la suma de las `cuotas` de todos los elementos de `proyeccion`; no incluye los cargos fijos ni la cuota de 2026-12 (D2)
+
+#### CA-RF31-09 — El saldo de cada mes de la proyección baja hasta cero [función + HTTP]
+
+- **Dado** el escenario base
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** el `saldoPendiente` de los elementos de `proyeccion` es, de `2027-01` a `2027-11`: `1556985.671967`, `1347442.453733`, `1137899.235499`, `928356.017265`, `718812.799031`, `599010.665859`, `479208.532688`, `359406.399516`, `239604.266344`, `119802.133172` y `0` (6 decimales); y cada saldo es el anterior menos las `cuotas` de su mes (el del mes de referencia incluido)
+
+#### CA-RF31-10 — Los cargos fijos no son parte del saldo [función]
+
+- **Dado** «Visa» solo con cargos activos de $55.000 y sin compras, y el escenario base
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** en la tarjeta con solo cargos `saldoPendiente` es `0` y en el escenario base es el mismo `1766528.890201` que sin cargos (no suma `55000` por ningún mes)
+
+#### CA-RF31-11 — El saldo incluye las compras futuras completas y no cuenta las terminadas [función]
+
+- **Dado** «Visa» con la compra A, la compra D (futura, `primerPago` 2027-02) y la compra E (terminada en 2026-10)
+- **Cuando** consulta los meses `2026-12` y `2027-02`
+- **Entonces** `saldoPendiente` es `1568258.206394` en `2026-12` (`11·A` más las 3 cuotas de D, `250434.741504`; E aporta 0) y `1245175.692883` en `2027-02` (`9·A` más las 2 cuotas restantes de D, `166956.494336`)
+
+#### CA-RF31-12 — El saldo con tasa cero y con una sola cuota sin interés [función]
+
+- **Dado** la tarjeta «Cero» con la compra G ($120.000 a 12 cuotas, 2026-12) y la tarjeta «Débito» (con la bandera) con una compra de $80.000 a 1 cuota con `primerPago` 2026-12
+- **Cuando** consulta en «Cero» los meses `2026-12` y `2027-11`, y en «Débito» los meses `2026-11` y `2026-12`
+- **Entonces** en «Cero» `saldoPendiente` es `110000` y `0`; en «Débito» `2026-11` da `cuotas` `0`, `saldoPendiente` `80000` y `proyeccion` con un solo mes, `2026-12`, de `cuotas` `80000`, y `2026-12` da `saldoPendiente` `0` (no hay interés oculto)
+
+#### CA-RF31-13 — El saldo suma las compras con tasas distintas [función]
+
+- **Dado** «Visa» con la compra A (0,2921) y la compra F (0,31), ambas con `primerPago` 2026-12
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** `saldoPendiente` es `2645107.338348` (`11·A + 11·F`; cada compra con su tasa)
+
+#### Propiedades y coherencia
+
+#### CA-RF31-14 — Los meses son contiguos y los montos son coherentes [función + HTTP]
+
+- **Dado** el escenario base y la tarjeta de CA-RF31-07
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** el primer elemento de `proyeccion` es el mes siguiente al de referencia y cada uno es el mes siguiente al anterior (con cruce de año); en el nivel superior y en cada elemento, `total` es `cuotas + cargosFijos`, y ningún monto es negativo, `NaN` ni infinito
+
+#### CA-RF31-15 — El mes siguiente de la proyección coincide con consultar ese mes [HTTP]
+
+- **Dado** el escenario base
+- **Cuando** consulta `mes=2026-12` y luego `mes=2027-01`
+- **Entonces** el primer elemento de `proyeccion` de la primera consulta es **igual** (`mes`, `cuotas`, `cargosFijos`, `total` y `saldoPendiente`) al nivel superior de la segunda, y la `proyeccion` de la segunda es la de la primera sin ese primer elemento
+
+#### CA-RF31-16 — La proyección y el saldo llegan con precisión completa [función]
+
+- **Dado** el escenario base
+- **Cuando** consulta el mes `2026-12`
+- **Entonces** `saldoPendiente` y los montos de `proyeccion` conservan decimales más allá de los dos primeros (`1766528.890201` y `209543.218234` no son enteros ni valen `1766528.89` ni `209543.22`): nada se redondea (RNF-11)
+
+---
+
+### Documentación Swagger
+
+`src/common/swagger.spec.ts` descubre todos los controladores y fallará si la ruta nueva o sus DTO (de query y de respuesta) no tienen etiqueta (`tarjetas`), resumen, descripción detallada, respuestas de error (`400`, `401`, `404` y `500` según apliquen) y `description` + `example` en cada propiedad. Como este `GET` no crea datos, **no** debe documentar `Idempotency-Key`; sí documenta `X-Zona-Horaria` (`ApiZonaHoraria`) porque decide el mes actual cuando falta `mes`. La descripción de la ruta debe explicar, para que otro desarrollador no tenga que leer el código: qué es el total del mes (suma de las cuotas vigentes de compras y avances, cada una con su propia tasa, más los cargos fijos activos); la **regla de vigencia** (`primerPago ≤ mes ≤ mesUltimoPago`, extremos incluidos); qué es el `saldoPendiente` (suma de las cuotas de los meses posteriores, con intereses; sin cargos fijos; incluye compras con primer pago futuro) y que no es el capital; que los cargos fijos activos se repiten en cada mes proyectado, no extienden la proyección y no tienen historial (se aplican también a meses pasados); que `proyeccion` empieza en el mes siguiente al de referencia, es contigua y termina en el último pago más lejano (`[]` si no quedan cuotas); que una tarjeta sin compras ni cargos activos da todo en cero; que no considera pagos de la tarjeta (llegan con RF-32); que los montos llegan **sin redondear** (RNF-11); la fórmula de la cuota; el formato de `mes` y que es opcional; y que cualquier otro parámetro responde `400`. Debe actualizarse la descripción general de la etiqueta `tarjetas` en `src/common/swagger.ts`, que hoy dice «Aún no hay proyección de pagos ni total del mes», para mencionar la ruta. Los criterios CA-RF30-21 a CA-RF30-28 fijan los códigos de error que deben documentarse.
+
+---
+
+## Índice de criterios del paquete 5.3.1
+
+- **RF-30:** CA-RF30-01 a CA-RF30-31. Total del mes: 01 a 06 (referencia de la hoja, precisión, varias compras y avances, tasa propia de cada compra, bandera, tasa cero); cargos fijos: 07 a 09 (activos e inactivos, solo cargos, tarjeta vacía); vigencia: 10 a 14 (extremos, futura, terminada, fecha de compra, mes pasado); datos: 15 a 17 (de esa tarjeta y de ese usuario, sin pagos, sin caché); la consulta: 18 a 30 (forma, mes por defecto y zona, formato de `mes`, extremos, repetido, no declarados, 404 y 400, 401, sin efectos, repetible); función: 31.
+- **RF-31:** CA-RF31-01 a CA-RF31-16. Proyección: 01 a 07 (referencia, bajan las cuotas, cargos repetidos, último pago más lejano, posterior, anterior, meses sin cuotas); saldo: 08 a 13 (mes de referencia, mes a mes, sin cargos, futuras y terminadas, tasa cero y bandera, tasas mixtas); coherencia: 14 a 16.
+- **Total:** 47 criterios (31 + 16). Capas: **función** (`calcularProyeccion`): RF30-01 a 14 y 31, RF31-01 a 14 y 16; **HTTP**: RF30-01 a 05, 07 a 09, 13 y 15 a 30, RF31-01, 02, 08, 09, 14 y 15.
+
+### Criterios con «Pendiente de decisión»
+
+Ninguno. El desarrollador aprobó el 2026-11-19 las decisiones D1 a D11 y, con ellas, los 47 criterios de esta sección. Reglas que dependen de ellas: D1 (la ruta, de todos los criterios HTTP), D2 (el saldo: CA-RF31-08 a 13 y los valores de la tabla), D3 (cargos: CA-RF30-07, 08, 14 y CA-RF31-03, 04, 10), D4 (vigencia y meses pasados: CA-RF30-10 a 14, CA-RF31-05, 06, 11), D5 (mes: CA-RF30-19 a 25), D6 (forma: CA-RF30-18 y todos los que leen campos), D7 (la función y las capas), D8 (sin pagos, sin efectos, orden de errores: CA-RF30-16, 17, 26 a 30), D9 (CA-RF30-23, CA-RF31-04, 07) y D11 (los valores por confirmar).
+
+### Valores por confirmar con la hoja del promotor
+
+La hoja no está disponible; el único valor verificado contra ella es $1.254.700 a 12 cuotas con E.A. 29,21 % → $119.802,13. Todo lo demás se calculó con la fórmula de `CLAUDE.md` sección 5 y se verificó con un segundo método independiente (ver «Valores de referencia»), pero estas cifras y reglas **conviene contrastarlas con la hoja** antes de aprobar:
+
+1. **Definición de «saldo pendiente» (D2).** Es la duda principal: si la hoja resta capital (`1583032.68` en el escenario base a 2026-12) o suma las cuotas que faltan (`1766528.89`). Cambia todos los valores de CA-RF31-08 a 13 y la tabla del escenario base.
+2. **Cargos fijos en meses posteriores (D3).** Si la hoja repite los cargos en cada mes de la proyección (y hasta cuándo) o solo los cuenta en el mes actual.
+3. **Compras con primer pago futuro en el saldo (D2 y D4).** Si la hoja las cuenta completas en el saldo desde hoy (recomendado) o solo cuando empiezan a pagarse.
+4. **Si el mes de referencia queda dentro de la lista de la proyección o aparte (D6).** La hoja puede mostrar una sola serie; cambiaría solo la forma de la respuesta, no los números.
+5. **Los totales del escenario base y de las combinaciones** (A + B + C; A con tasa 0,31; A + D; etc.). Los cálculos individuales son fiables; falta que la hoja confirme las sumas con las mismas compras. Conviene contrastar al menos una tarjeta con dos o tres compras de distinto plazo y un cargo fijo.

@@ -237,8 +237,21 @@ export interface EntornoCompras {
     consulta?: string,
     opciones?: Opciones,
   ): request.Test;
+  /** `GET /tarjetas/:tarjetaId/proyeccion` con la query ya armada (`'mes=2026-12'`); sin ella, sin query (paquete 5.3.1). */
+  proyeccion(
+    tarjetaId: string,
+    consulta?: string,
+    opciones?: Opciones,
+  ): request.Test;
   editarTarjeta(id: string, cuerpo: unknown, opciones?: Opciones): request.Test;
   eliminarTarjeta(id: string, opciones?: Opciones): request.Test;
+  /** `PATCH /tarjetas/:tarjetaId/cargos/:id`. */
+  editarCargo(
+    tarjetaId: string,
+    id: string,
+    cuerpo: unknown,
+    opciones?: Opciones,
+  ): request.Test;
   listarTransacciones(opciones?: Opciones): request.Test;
   editarTransaccion(
     id: string,
@@ -255,8 +268,12 @@ export interface EntornoCompras {
   hoyEs(iso: string): void;
   /** Inserta una tarjeta directo en la base y devuelve su id. Las fechas de creación van en orden de siembra. */
   sembrarTarjeta(datos?: DatosDeTarjeta, usuarioId?: string): Promise<string>;
-  /** Inserta un cargo fijo directo en la base y devuelve su id. */
-  sembrarCargo(tarjetaId: string, usuarioId?: string): Promise<string>;
+  /** Inserta un cargo fijo directo en la base (por defecto «Netflix» de $38.900, activo) y devuelve su id. `datos` cambia los campos. */
+  sembrarCargo(
+    tarjetaId: string,
+    usuarioId?: string,
+    datos?: Doc,
+  ): Promise<string>;
   /** Inserta una categoría (general si `usuarioId` es `null`) y la devuelve. */
   sembrarCategoria(
     nombre: string,
@@ -485,6 +502,25 @@ export function usarEntornoCompras(): EntornoCompras {
           undefined,
           opciones,
         ),
+      proyeccion: (tarjetaId: string, texto = '', opciones?: Opciones) =>
+        enviar(
+          'get',
+          `/tarjetas/${tarjetaId}/proyeccion${consulta(texto)}`,
+          undefined,
+          opciones,
+        ),
+      editarCargo: (
+        tarjetaId: string,
+        id: string,
+        cuerpo: unknown,
+        opciones?: Opciones,
+      ) =>
+        enviar(
+          'patch',
+          `/tarjetas/${tarjetaId}/cargos/${id}`,
+          cuerpo,
+          opciones,
+        ),
       editarTarjeta: (id: string, cuerpo: unknown, opciones?: Opciones) =>
         enviar('patch', `/tarjetas/${id}`, cuerpo, opciones),
       eliminarTarjeta: (id: string, opciones?: Opciones) =>
@@ -532,12 +568,17 @@ export function usarEntornoCompras(): EntornoCompras {
         fechar(tarjetas, tarjeta.id);
         return tarjeta.id;
       },
-      sembrarCargo: async (tarjetaId: string, usuarioId = USUARIO_ID) => {
+      sembrarCargo: async (
+        tarjetaId: string,
+        usuarioId = USUARIO_ID,
+        datos: Doc = {},
+      ) => {
         const cargo = await cargos.create({
           usuarioId,
           tarjetaId,
           descripcion: 'Netflix',
           valor: 38900,
+          ...datos,
         });
         fechar(cargos, cargo.id);
         return cargo.id;
