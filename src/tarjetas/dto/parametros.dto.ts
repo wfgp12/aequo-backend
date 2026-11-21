@@ -12,12 +12,12 @@ export class IdTarjetaParamDto {
   id: string;
 }
 
-/** Rutas `/tarjetas/:tarjetaId/cargos`, `…/compras` y `…/avances`. */
+/** Rutas `/tarjetas/:tarjetaId/cargos`, `…/compras`, `…/avances` y `…/pagos`. */
 export class TarjetaIdParamDto {
   @ApiProperty({
     type: String,
     example: '66a0b3c4d5e6f70012ab34cd',
-    description: 'Id de la tarjeta dueña de los cargos, compras o avances, tal como lo devuelven POST y GET /tarjetas.',
+    description: 'Id de la tarjeta dueña de los cargos, compras, avances o pagos, tal como lo devuelven POST y GET /tarjetas.',
   })
   @IsMongoId({ message: 'tarjetaId debe ser un id de tarjeta válido' })
   tarjetaId: string;
@@ -42,5 +42,16 @@ export class IdCompraParamDto extends TarjetaIdParamDto {
     description: 'Id de la compra o del avance, tal como lo devuelven POST y GET /tarjetas/:tarjetaId/compras.',
   })
   @IsMongoId({ message: 'id debe ser un id de compra válido' })
+  id: string;
+}
+
+/** Ruta `/tarjetas/:tarjetaId/pagos/:id`. */
+export class IdPagoParamDto extends TarjetaIdParamDto {
+  @ApiProperty({
+    type: String,
+    example: '66a0b3c4d5e6f70012ab3501',
+    description: 'Id del pago, tal como lo devuelven POST y GET /tarjetas/:tarjetaId/pagos.',
+  })
+  @IsMongoId({ message: 'id debe ser un id de pago válido' })
   id: string;
 }
