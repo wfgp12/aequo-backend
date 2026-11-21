@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { TipoCompra } from '../compra-credito.enums.js';
 
 /** Las cifras de un mes de la tarjeta. Todos los montos son pesos sin redondear (el cliente redondea al mostrar). */
 export class MesProyeccionDto {
@@ -37,6 +38,53 @@ export class MesProyeccionDto {
   saldoPendiente: number;
 }
 
+/** La cuota que una compra o un avance aporta al mes de referencia. */
+export class DetalleCuotaDto {
+  @ApiProperty({
+    type: String,
+    example: '66a0b3c4d5e6f70012ab34ef',
+    description: 'Id de la compra o del avance (el mismo `id` de `GET …/compras`), para abrirla o editarla.',
+  })
+  compraId: string;
+
+  @ApiProperty({
+    type: String,
+    example: 'Televisor',
+    description: 'Descripción tal como está guardada. Un avance registrado sin descripción lleva `Avance en efectivo`.',
+  })
+  descripcion: string;
+
+  @ApiProperty({
+    enum: Object.values(TipoCompra),
+    example: 'COMPRA',
+    description: '`COMPRA` (compra a cuotas) o `AVANCE` (avance en efectivo diferido a cuotas).',
+  })
+  tipo: TipoCompra;
+
+  @ApiProperty({
+    type: Number,
+    example: 1,
+    description:
+      'Número de la cuota que se paga en el mes de referencia: meses transcurridos desde el mes del primer pago, más 1. Va de 1 a `totalCuotas`.',
+  })
+  numeroCuota: number;
+
+  @ApiProperty({
+    type: Number,
+    example: 12,
+    description: 'Cuotas en las que se diferió la compra o el avance.',
+  })
+  totalCuotas: number;
+
+  @ApiProperty({
+    type: Number,
+    example: 119802.1331718775,
+    description:
+      'Cuota mensual de esta compra, con su propia tasa (`tasaEAAplicada`) y bandera `cuotaUnicaSinInteres`, sin redondear. La suma de las cuotas del detalle es `cuotas` del mes de referencia.',
+  })
+  cuota: number;
+}
+
 /** Total del mes de referencia, su saldo pendiente y la proyección de los meses siguientes de una tarjeta. */
 export class ProyeccionRespuestaDto extends MesProyeccionDto {
   @ApiProperty({
@@ -45,6 +93,23 @@ export class ProyeccionRespuestaDto extends MesProyeccionDto {
     description: 'Id de la tarjeta consultada.',
   })
   tarjetaId: string;
+
+  @ApiProperty({
+    type: () => [DetalleCuotaDto],
+    description:
+      'Qué compras y avances componen `cuotas` en el mes de referencia: una fila por cada compra o avance vigente (`primerPago ≤ mes ≤ mesUltimoPago`), de la más reciente a la más antigua (fecha de la compra, luego creación). Los cargos fijos no aparecen (están en `cargosFijos`). `[]` si ninguna está vigente. Solo se informa en el mes de referencia; las filas de `proyeccion` no lo traen.',
+    example: [
+      {
+        compraId: '66a0b3c4d5e6f70012ab34ef',
+        descripcion: 'Televisor',
+        tipo: 'COMPRA',
+        numeroCuota: 1,
+        totalCuotas: 12,
+        cuota: 119802.1331718775,
+      },
+    ],
+  })
+  detalle: DetalleCuotaDto[];
 
   @ApiProperty({
     type: Number,
