@@ -33,12 +33,12 @@ export interface ProyeccionTarjeta extends MesProyectado {
 const MES = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
 /** Posición absoluta del mes (años · 12 + mes), para recorrer meses sin pasar por fechas. */
-const indiceDeFecha = (fecha: Date) => fecha.getUTCFullYear() * 12 + fecha.getUTCMonth();
+export const indiceDeFecha = (fecha: Date) => fecha.getUTCFullYear() * 12 + fecha.getUTCMonth();
 
 const textoDeMes = (indice: number) =>
   `${String(Math.floor(indice / 12)).padStart(4, '0')}-${String((indice % 12) + 1).padStart(2, '0')}`;
 
-function indiceDeMes(mes: unknown): number {
+export function indiceDeMes(mes: unknown): number {
   const partes = typeof mes === 'string' ? MES.exec(mes) : null;
   if (!partes) throw new RangeError('mes debe tener el formato YYYY-MM con un mes de 01 a 12.');
   return Number(partes[1]) * 12 + Number(partes[2]) - 1;

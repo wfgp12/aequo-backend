@@ -21,10 +21,12 @@ const esError400 = (respuesta: { status: number; body: any }) => {
   expect(respuesta.body).not.toHaveProperty('proyeccion');
 };
 
-// Con los campos del paquete 5.3.2 (RF-32): `pagado` y `diferencia` en el nivel superior (CA-RF32-34 modifica CA-RF30-18).
+// Con los campos del paquete 5.3.2 (RF-32): `pagado` y `diferencia` en el nivel superior (CA-RF32-34 modifica CA-RF30-18),
+// y con el del paquete 5.3.6: `detalle` (CA-RF31-18 lo vuelve a modificar: diez claves).
 const CLAVES_NIVEL_SUPERIOR = [
   'cargosFijos',
   'cuotas',
+  'detalle',
   'diferencia',
   'mes',
   'pagado',
@@ -46,7 +48,7 @@ const CLAVES_PROHIBIDAS = ['id', '_id', 'usuarioId', '__v'];
 describe('GET /tarjetas/:tarjetaId/proyeccion: la consulta (integración)', () => {
   const e = usarEntornoCompras();
 
-  it('CA-RF30-18 la forma exacta de la respuesta (con `pagado` y `diferencia`, CA-RF32-34)', async () => {
+  it('CA-RF30-18 la forma exacta de la respuesta (con `pagado` y `diferencia`, CA-RF32-34, y `detalle`, CA-RF31-18)', async () => {
     const { visa } = await sembrarEscenarioBase(e);
 
     const { status, body } = await e.proyeccion(visa, 'mes=2026-12');

@@ -15,6 +15,7 @@ import type { ProyeccionRespuestaDto } from './dto/proyeccion-respuesta.dto.js';
 import type { TarjetaRespuestaDto } from './dto/tarjeta-respuesta.dto.js';
 import { CargoRecurrente, type CargoRecurrenteDocument } from './cargo-recurrente.schema.js';
 import { CompraCredito } from './compra-credito.schema.js';
+import { calcularDetalleCuotas } from './detalle-cuotas.js';
 import { rangoDelMes } from './fechas.js';
 import { calcularProyeccion } from './proyeccion-tarjeta.js';
 import { TarjetaCredito, type TarjetaCreditoDocument } from './tarjeta-credito.schema.js';
@@ -132,6 +133,7 @@ export class TarjetasService {
   /**
    * Total del mes, saldo pendiente y proyección de una tarjeta propia (RF-30, RF-31), más lo pagado en el mes de
    * referencia y su diferencia con el total (RF-32). El cálculo es de `calcularProyeccion`; los pagos no lo alteran.
+   * `detalle` desglosa por compra las cuotas del mes de referencia con esas mismas compras (`calcularDetalleCuotas`).
    * Sin `mes`, el de referencia es el actual en la zona del cliente.
    */
   async proyectarPagos(
@@ -150,7 +152,8 @@ export class TarjetasService {
     ]);
     const proyeccion = calcularProyeccion({ mes: referencia, compras, cargos });
     const pagado = pagos.reduce((suma, pago) => suma + pago.monto, 0);
-    return { tarjetaId: String(tarjeta._id), ...proyeccion, pagado, diferencia: pagado - proyeccion.total };
+    const detalle = calcularDetalleCuotas({ mes: referencia, compras });
+    return { tarjetaId: String(tarjeta._id), ...proyeccion, detalle, pagado, diferencia: pagado - proyeccion.total };
   }
 
   /** Los pagos de una tarjeta (transacciones `PAGO_TARJETA`), el más reciente primero; con `mes`, solo los de ese mes. */
