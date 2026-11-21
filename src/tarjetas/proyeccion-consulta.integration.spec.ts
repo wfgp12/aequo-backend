@@ -21,10 +21,13 @@ const esError400 = (respuesta: { status: number; body: any }) => {
   expect(respuesta.body).not.toHaveProperty('proyeccion');
 };
 
+// Con los campos del paquete 5.3.2 (RF-32): `pagado` y `diferencia` en el nivel superior (CA-RF32-34 modifica CA-RF30-18).
 const CLAVES_NIVEL_SUPERIOR = [
   'cargosFijos',
   'cuotas',
+  'diferencia',
   'mes',
+  'pagado',
   'proyeccion',
   'saldoPendiente',
   'tarjetaId',
@@ -43,7 +46,7 @@ const CLAVES_PROHIBIDAS = ['id', '_id', 'usuarioId', '__v'];
 describe('GET /tarjetas/:tarjetaId/proyeccion: la consulta (integración)', () => {
   const e = usarEntornoCompras();
 
-  it('CA-RF30-18 la forma exacta de la respuesta', async () => {
+  it('CA-RF30-18 la forma exacta de la respuesta (con `pagado` y `diferencia`, CA-RF32-34)', async () => {
     const { visa } = await sembrarEscenarioBase(e);
 
     const { status, body } = await e.proyeccion(visa, 'mes=2026-12');
@@ -170,9 +173,9 @@ describe('GET /tarjetas/:tarjetaId/proyeccion: la consulta (integración)', () =
       expect(pasado.body.cargosFijos).toBe(55000);
       cerca(pasado.body.saldoPendiente, 2057798.940366);
       expect(pasado.body.proyeccion).toHaveLength(94);
-      expect(pasado.body.proyeccion.map((fila: { mes: string }) => fila.mes)).toEqual(
-        mesesDe('2020-02', '2027-11'),
-      );
+      expect(
+        pasado.body.proyeccion.map((fila: { mes: string }) => fila.mes),
+      ).toEqual(mesesDe('2020-02', '2027-11'));
       expect(futuro.status).toBe(200);
       expect(futuro.body.cuotas).toBe(0);
       expect(futuro.body.total).toBe(55000);

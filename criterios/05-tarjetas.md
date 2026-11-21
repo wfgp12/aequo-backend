@@ -2842,3 +2842,479 @@ La hoja no está disponible; el único valor verificado contra ella es $1.254.70
 3. **Compras con primer pago futuro en el saldo (D2 y D4).** Si la hoja las cuenta completas en el saldo desde hoy (recomendado) o solo cuando empiezan a pagarse.
 4. **Si el mes de referencia queda dentro de la lista de la proyección o aparte (D6).** La hoja puede mostrar una sola serie; cambiaría solo la forma de la respuesta, no los números.
 5. **Los totales del escenario base y de las combinaciones** (A + B + C; A con tasa 0,31; A + D; etc.). Los cálculos individuales son fiables; falta que la hoja confirme las sumas con las mismas compras. Conviene contrastar al menos una tarjeta con dos o tres compras de distinto plazo y un cargo fijo.
+
+---
+
+## Paquete 5.3.2 — Registro de pago de tarjeta (RF-32)
+
+Estado: Aprobado por el desarrollador el 2026-11-20 (los valores de la hoja del promotor siguen por confirmar)
+
+### Alcance
+
+Entra el **registro del pago de una tarjeta** (RF-32, CU-18): un egreso del usuario asociado a la tarjeta, guardado como **transacción** con `clasificacionFlujo` `PAGO_TARJETA` y `tarjetaId` (ADR-014), y su **comparación con el total estimado del mes** (el que ya calcula `GET /tarjetas/:tarjetaId/proyeccion`, 5.3.1). Para que el usuario pueda **corregir** un pago equivocado y para que una tarjeta con pagos se pueda eliminar, entran también **listar** los pagos de una tarjeta y **eliminar** uno (D4). Los reportes no cambian de código: ya cuentan los `PAGO_TARJETA` en el balance del mes y los excluyen del gasto por categoría; aquí se **verifica por HTTP** que el pago registrado desde la tarjeta llega bien a ellos (postcondición de CU-18, criterio de la EDT).
+
+**No** entran: editar un pago (se elimina y se registra de nuevo, D4); descontar los pagos del `saldoPendiente` ni asignar un pago a una cuota concreta (D5); intereses de mora; cupo, día de corte o de pago (el esquema no los guarda); pagos de deudas (RF-37, paquete 6.x); las pantallas (5.3.3, frontend); el cambio de los reportes para que cuenten las compras con tarjeta por su categoría (ADR-014; paquete aparte); cambiar el cálculo del total estimado ni de la proyección (5.3.1: este paquete **reutiliza** ese cálculo y no lo duplica).
+
+### Fuentes
+
+- **RF-32 (Especificación de Requisitos):** «registrar el pago de una tarjeta como un egreso asociado a ella y compararlo con el total estimado del mes». RF-33 (editar y eliminar) nombra tarjetas, compras y cargos, no pagos.
+- **CU-18 (Documento de Diseño Técnico):** el usuario elige «Registrar pago» en una tarjeta; el sistema propone el total estimado del mes; el usuario confirma o ajusta el valor pagado y la fecha; el backend guarda «un egreso clasificado como pago de tarjeta asociado a ella»; el sistema muestra la diferencia entre lo pagado y lo estimado. Postcondición: «el pago afecta el balance del mes en que se hizo y no aparece en el reporte por categoría». Sección 2.3 (balance del mes): «una compra con tarjeta no afecta el balance el día de la compra; lo afecta el pago de la tarjeta».
+- **Diccionario de la EDT, 5.3.2:** «Desarrollar el registro del pago de una tarjeta como egreso asociado a ella, que afecta el balance del mes en que se paga y no el reporte por categoría». Entregable: «Endpoint de pago de tarjeta». Aceptación: «El pago se refleja en el balance del mes del pago y no se cuenta dos veces en el reporte por categoría (ADR-014)». 5.3.3 (frontend) pide «la comparación con lo pagado» en la vista de la tarjeta.
+- **ADR-014 y `CLAUDE.md` (secciones 5 y 6):** `transacciones.clasificacionFlujo = PAGO_TARJETA` con `tarjetaId`; el balance del mes cuenta los pagos de tarjeta; el gasto por categoría los excluye; todo `POST` que crea datos lleva `@Idempotente()` y documenta `Idempotency-Key`; una compra con tarjeta no es una transacción; el campo del usuario se llama `usuarioId` (RF-04); el cálculo vive en el backend y se redondea solo al presentar (RNF-11).
+- **Código ya en `develop`:** `Transaccion` (`categoriaId` opcional y `null` por defecto, `metodoPago` obligatorio entre `EFECTIVO`, `DEBITO` y `TRANSFERENCIA`, `tarjetaId` opcional; el comentario de `transaccion.enums.ts` dice que un `PAGO_TARJETA` lleva «el método con que se pagó»); `TransaccionesService` responde `409` si se edita o elimina desde `/transacciones` una transacción que no es `ORDINARIO`; `ReportesService.sumarMovimiento` suma el `PAGO_TARJETA` en `pagosTarjeta` y lo resta del `balance`, y el gasto por categoría solo cuenta `ORDINARIO` (`GET /reportes/categorias`); `GET /ahorro/progreso` ya suma `pagosTarjeta` a los egresos; `TarjetasService.eliminar` ya responde `409 No se puede eliminar una tarjeta que ya tiene pagos registrados` (CA-RF33-19 a 22, hoy probados con pagos sembrados en la base: la ruta de este paquete es la que faltaba para crearlos y borrarlos de verdad); `TarjetasService.proyectarPagos` y `calcularProyeccion` (5.3.1); `MONTO_MAXIMO` (999.999.999.999) y los validadores `FechaCalendario` y `MesCalendario` de `src/common/validadores.ts`; `@ZonaHoraria()` y `ApiZonaHoraria`; `ValidationPipe` global estricto; el avance de 5.2.3 (su transacción `DINERO_RECIBIDO` también lleva `tarjetaId`: no es un pago).
+- **Criterios ya aprobados que este paquete reutiliza:** 5.2.3 (patrón de `POST` anidado en la tarjeta con `fecha` por defecto según `X-Zona-Horaria`, descripción opcional con valor por defecto, idempotencia, `404` de tarjeta ajena sin guardar nada, orden `401` → `400` → `404`), 5.3.1 (el total estimado y su contrato) y 5.1.2 (CA-RF33-19 a 22).
+
+### Valores de referencia y cómo se obtuvieron
+
+- **De la hoja del promotor:** solo el de siempre: $1.254.700 a 12 cuotas con E.A. 29,21 % → cuota de $119.802,13 (`119802.1331718775`). La hoja **no está** en el repositorio ni en `../docs`, y no se sabe si tiene una columna de «pagado» o de «diferencia»: ninguno de los valores de este paquete viene de ella. Lo que queda por confirmar está en el apartado final.
+- **Calculados por el tester con un cálculo aparte del código del repo** (Python con aritmética decimal de 50 dígitos, sin usar `cuota-credito.ts`; las cuotas con la fórmula de ADR-014, como en 5.3.1): con E.A. 29,21 %, A = $1.254.700 a 12 → `119802.133171877499`; B = $500.000 a 6 → `89741.085062070011`; C = $80.000 a 1 → `81726.831930738000`; con tasa 0, G = $120.000 a 12 → `10000`. Total estimado del escenario base: 2026-12 = A + B + C + 55.000 = `346270.050164685510`; 2027-01 = A + B + 55.000 = `264543.218233947510`; 2027-06 = A + 55.000 = `174802.133171877499`; 2026-11 y 2099-12 = 55.000 (solo los cargos).
+- **Diferencias** (`diferencia = pagado − estimado`, ver D3), calculadas con esos totales: pagar 346.270 → `−0.050164685510`; pagar 300.000 → `−46270.050164685510`; pagar 300.000 y luego 46.270,05 → `−0.000164685510`; pagar 400.000 → `+53729.949835314490`; pagar 100.000 en 2027-06 → `−74802.133171877499`; pagar 50.000 en 2027-01 → `−214543.218233947510`; pagar 40.000 en 2026-11 → `−15000`; pagar 10.000 de la tarjeta «Cero» → exactamente `0`.
+- **Tolerancia al verificar:** los montos guardados o devueltos tal cual (el `valor` del pago, la suma de pagos enteros) se comparan exactos; el total estimado y la `diferencia` con 6 decimales (`toBeCloseTo(x, 6)`); nunca contra un valor redondeado al peso: nada se redondea (RNF-11).
+
+### Datos de las pruebas
+
+- **Tarjetas del usuario A:** «Visa» (0,2921) con el **escenario base de 5.3.1** (compra A, avance B y compra C, todas con `primerPago` 2026-12, y los cargos activos «Netflix» $40.000 y «Seguro» $15.000 más «Gimnasio» $60.000 inactivo); «Cero» (tasa 0) con la compra G ($120.000 a 12 cuotas, `primerPago` 2026-12: estimado de 2026-12 = `10000`); «Vacía» (sin compras ni cargos: estimado 0) y «Débito» (otra tarjeta del mismo usuario). El usuario B tiene su propia «Visa» con el mismo escenario.
+- **Categorías generales:** «Hogar» (`EGRESO`), «Salario» (`INGRESO`) y «Otros egresos» (`EGRESO`, respaldo).
+- **Pago base:** `{ "valor": 300000, "fecha": "2026-12-05", "metodoPago": "TRANSFERENCIA", "descripcion": "Pago de diciembre" }`. Salvo que se diga otra cosa, el reloj está en `2026-12-15T12:00:00Z`.
+
+### Contrato de nombres (D11)
+
+- **No hay entidad nueva ni función pura nueva.** El pago **es** una transacción (D1): `TarjetasModule` ya registra `Transaccion` e `Idempotencia` con el nombre de su clase como token (`getModelToken(Transaccion.name)`), que es lo que las pruebas reemplazan por colecciones en memoria. El `id` del pago es el `_id` de su transacción. El servicio, el controlador y los DTO los nombra el implementador (`CLAUDE.md` ya lista `TarjetasService.registrarPago(dto)`). El cálculo de la comparación **no** duplica el de la proyección: usa `calcularProyeccion` / `proyectarPagos`.
+- **HTTP:** se prueba solo por la API con el arnés `test/tarjetas/arnes-compras.ts` (ya monta tarjetas, cargos, compras, transacciones, categorías, reportes, idempotencia y la eliminación de la cuenta). El tester agregará a ese arnés los atajos `crearPago`, `listarPagos` y `eliminarPago` (está en `test/`, no es producción).
+
+### Contrato HTTP (propuesto, D1, D3, D4) (lo consumirá el frontend en 5.3.3)
+
+Todas las rutas requieren `Authorization: Bearer <accessToken>`.
+
+| Operación | Ruta | Cuerpo / query | Éxito |
+|---|---|---|---|
+| Registrar pago | `POST /tarjetas/:tarjetaId/pagos` | `{ valor, fecha?, metodoPago?, descripcion? }` | `201` + pago con su `comparacion` |
+| Listar pagos | `GET /tarjetas/:tarjetaId/pagos?mes=YYYY-MM` | `mes` opcional | `200` + `{ items: [pago…] }` |
+| Eliminar pago | `DELETE /tarjetas/:tarjetaId/pagos/:id` | — | `204` sin cuerpo |
+| Total del mes (cambio aditivo) | `GET /tarjetas/:tarjetaId/proyeccion?mes` | sin cambios | `200` + lo de 5.3.1 más `pagado` y `diferencia` en el nivel superior |
+
+`POST …/pagos` lleva `@Idempotente()` y documenta `Idempotency-Key` y `X-Zona-Horaria`; `GET` y `DELETE` no. El **pago** que devuelven las tres rutas tiene exactamente estos campos (sin `usuarioId`, `_id`, `__v`, `tipo`, `monto` ni `clasificacionFlujo`); el `POST` agrega `comparacion`:
+
+```json
+{
+  "id": "66a0b3c4d5e6f70012ab3501",
+  "tarjetaId": "66a0b3c4d5e6f70012ab34cd",
+  "valor": 300000,
+  "fecha": "2026-12-05",
+  "metodoPago": "TRANSFERENCIA",
+  "descripcion": "Pago de diciembre",
+  "creadaEn": "2026-12-15T12:00:00.000Z",
+  "comparacion": {
+    "mes": "2026-12",
+    "estimado": 346270.05016468551,
+    "pagado": 300000,
+    "diferencia": -46270.05016468551
+  }
+}
+```
+
+`GET /tarjetas/:tarjetaId/proyeccion?mes=2026-12` conserva todos sus campos y agrega, **solo en el nivel superior** (el mes de referencia; las filas de `proyeccion` no cambian), `"pagado": 300000` y `"diferencia": -46270.05016468551`. `valor` y los montos de `comparacion` son números sin redondear (RNF-11); `fecha` es `YYYY-MM-DD`; `mes` es `YYYY-MM`. Mensajes de error fijos: `404 Tarjeta no encontrada`; `404 Pago no encontrado`. Errores en formato Nest `{ statusCode, message, error }` con `message` arreglo en los `400`.
+
+### Decisiones propuestas (pendientes de aprobación)
+
+Ninguna de estas reglas está definida en un RF ni en un ADR, salvo donde se cita; cada una dice su respaldo y la alternativa descartada. Los criterios de abajo reflejan la **opción recomendada** de cada una. Si el desarrollador elige otra, solo cambian los criterios que cada decisión nombra.
+
+> Decisión D1 — **ruta, qué es el pago y su categoría.** Opciones: (A) ruta propia `POST /tarjetas/:tarjetaId/pagos`, con `@Idempotente()`; el pago **es** una transacción `EGRESO` con `clasificacionFlujo` `PAGO_TARJETA`, `tarjetaId` y **sin categoría** (`categoriaId` `null`); (B) reutilizar `POST /transacciones` agregando `clasificacionFlujo` y `tarjetaId` al cuerpo; (C) ruta propia con una colección `pagostarjeta` aparte. **Recomendado: A.** Razones: `CLAUDE.md` sección 6 manda un solo `POST /transacciones` para el **botón** de ingreso o egreso (el cliente solo fija `tipo`); el pago de tarjeta es otra acción de la pantalla (CU-18 «Registrar pago» dentro de la tarjeta), con otros datos (la tarjeta de la ruta, sin categoría) y el mismo precedente que el avance (5.2.3 D2, `POST /tarjetas/:tarjetaId/avances`). Con B habría que hacer opcional la categoría solo para ciertas clasificaciones, validar `tarjetaId` y dejar que `PATCH /transacciones` cambie el `tipo` o la categoría de un pago (rompe ADR-014). Con C el balance y los reportes tendrían que leer dos colecciones (ADR-014 y CU-18 dicen «transacción»). **Sobre la categoría:** el esquema **no** exige categoría a un `PAGO_TARJETA` (`categoriaId` es opcional, `null` por defecto: «los pagos de tarjeta y abonos no cuentan por categoría») y la transacción del avance de 5.2.3 (D11) ya va con `categoriaId` `null`; recomendado seguir ese precedente. Asignarle la categoría de respaldo (como la **compra** del avance, que sí la necesita) no tiene fuente y dejaría un dato que solo evita, sin garantía, que un reporte futuro lo cuente dos veces. Efecto: `GET /transacciones` muestra el pago con `categoriaId` y `categoria` en `null`.
+
+> Decisión D2 — **cuerpo y validaciones.** Recomendado: `{ valor, fecha?, metodoPago?, descripcion? }`. **`valor`** (nombre que usan cargos, compras y avances de la misma ruta; la transacción lo guarda como `monto`): número mayor que 0, **con máximo 2 decimales** (es dinero que salió de verdad, igual que `monto` en `POST /transacciones`) y a lo sumo `MONTO_MAXIMO` (999.999.999.999). Como el total estimado llega sin redondear, el cliente redondea la propuesta al presentarla (RNF-11) y el usuario confirma o ajusta ese valor. **`fecha`:** opcional, `YYYY-MM-DD` real, pasada o futura (como una transacción); sin ella es **hoy** en la zona de `X-Zona-Horaria` (UTC sin el header, `400` si es inválida), como en 5.2.3 D6; se guarda a las 00:00 UTC. **`metodoPago`:** opcional, uno de `EFECTIVO`, `DEBITO`, `TRANSFERENCIA` (los de una transacción; `TARJETA_CREDITO` no sirve para pagar una tarjeta), **por defecto `TRANSFERENCIA`** (CU-18 pide solo valor y fecha; pagar una tarjeta suele ser por transferencia o PSE). **`descripcion`:** opcional, de 1 a 200 caracteres con recorte de espacios; sin ella es `Pago de tarjeta` (como el avance, 5.2.3 D10). `tipo`, `monto`, `clasificacionFlujo`, `tarjetaId`, `usuarioId`, `categoriaId`, `deudaId` y cualquier otro campo son `400`; `null` en un campo opcional también. Alternativas: `monto` en lugar de `valor` (coincide con `/transacciones`, pero no con las demás rutas de la tarjeta); `metodoPago` obligatorio (obliga al cliente a preguntar algo que CU-18 no menciona); aceptar decimales sin límite (como `valor` de una compra: un pago real no tiene fracciones de centavo). **Por confirmar:** el valor por defecto de `metodoPago` y los 2 decimales.
+
+> Decisión D3 — **cómo se «compara con el total estimado del mes».** Opciones: (A) el `POST` devuelve la `comparacion` del mes del pago (`mes`, `estimado`, `pagado`, `diferencia`) **y** `GET /proyeccion` agrega `pagado` y `diferencia` al mes de referencia (campos nuevos, sin cambiar los existentes); (B) solo el `POST`; (C) un `GET /tarjetas/:tarjetaId/pagos/comparacion?mes` aparte; (D) agregar `pagado` y `diferencia` a **cada** mes de `proyeccion`. **Recomendado: A**, con estas definiciones: `estimado` = el `total` de la proyección de ese mes (cuotas vigentes + cargos fijos activos, sin redondear: **se reutiliza** `proyectarPagos`, no se calcula otra vez); `pagado` = la suma del `valor` de **todos** los `PAGO_TARJETA` de **esa** tarjeta y de ese usuario cuya `fecha` cae en ese mes (con el pago nuevo incluido en el `POST`; no cuentan los avances `DINERO_RECIBIDO`, las transacciones ordinarias, los abonos ni los pagos de otras tarjetas); `diferencia = pagado − estimado` (**negativa**: falta por pagar; **positiva**: pagó de más; **0**: exacto; sigue el orden de CU-18 «la diferencia entre lo pagado y lo estimado»). **El mes de la comparación es el de la `fecha` del pago** (CU-18: «el balance del mes en que se hizo»), no el mes de hoy. Razones de A: CU-18 paso 5 pide mostrar la diferencia al registrar (una sola llamada); 5.3.3 muestra «la comparación con lo pagado» en la vista de la tarjeta, que ya consume `GET /proyeccion` (una sola llamada); el contrato de 5.3.1 (`coordinacion/contratos/proyeccion.md`) ya anticipa que los pagos llegan «como campos nuevos, sin cambiar estos»; y se parte de un solo cálculo. **Cuidado:** agregar dos claves al nivel superior **modifica CA-RF30-18 (aprobado en 5.3.1: «exactamente las claves…»)** y su prueba (`CLAVES_NIVEL_SUPERIOR` en `proyeccion-consulta.integration.spec.ts`): necesita aprobación explícita del desarrollador (ver CA-RF32-34). Alternativas: B (el front tendría que sumar los pagos o pedirlos aparte, contra RNF-11); C (una ruta más y dos viajes en la vista); D (todos los meses futuros mostrarían una diferencia negativa que no es una deuda vencida, y cambia también la forma de las filas). Con B se eliminan CA-RF32-29 a 34 y con C pasan a esa ruta; en ambos casos no se toca ninguna prueba aprobada.
+
+> Decisión D4 — **qué otras operaciones entran.** Opciones: (A) listar y eliminar desde la tarjeta (`GET` y `DELETE …/pagos`); un pago equivocado se corrige eliminándolo y registrándolo de nuevo; `/transacciones` sigue respondiendo `409` a `PATCH` y `DELETE` de un pago; (B) lo anterior más `PATCH …/pagos/:id`; (C) gestionar los pagos desde `/transacciones` (quitar el `409` a `PAGO_TARJETA`). **Recomendado: A.** Razones: sin `DELETE` desde la tarjeta, una tarjeta con un pago quedaría **imposible de eliminar** (la regla de 5.1.2, CA-RF33-19 a 21, exige borrar primero sus pagos, y hoy `/transacciones` lo prohíbe: es el mismo callejón que D12 de 5.2.3 cerró para los avances); sin listar, el cliente no tiene los ids de los pagos viejos (`GET /transacciones` no trae `tarjetaId`). Editar no lo pide ningún RF (RF-33 nombra tarjetas, compras y cargos) y eliminar y volver a registrar da el mismo resultado; con C, `PATCH /transacciones` podría cambiar el `tipo` o la categoría de un pago. `GET` de un solo pago no se agrega (nadie lo necesita). Alternativa B: costo pequeño (misma validación y recalcular la comparación); se agrega cuando el frontend lo pida. El listado: sin paginación (como compras y cargos), más reciente primero (`fecha` descendente y, a igual fecha, creación descendente), filtro opcional `mes` (`YYYY-MM`, el mes de la `fecha`); sin `mes`, todos los pagos de la tarjeta; otro parámetro o un `mes` repetido o inválido es `400`.
+
+> Decisión D5 — **el pago no descuenta el saldo pendiente ni se bloquea.** Recomendado: (a) `saldoPendiente`, `cuotas`, `cargosFijos` y `total` de la proyección **no** cambian con los pagos (se mantiene D8 de 5.3.1 y CA-RF30-16): el saldo es la suma de las cuotas de los meses siguientes y un pago no se asigna a una cuota concreta; lo pagado se compara en su mes (`pagado`, `diferencia`); (b) no se restringe el valor: se puede pagar menos o más que el estimado, en un mes sin estimado (tarjeta vacía) o con una fecha pasada o futura; (c) tampoco se exige que la tarjeta tenga compras. Fuente: RF-32 no pide limitar; ADR-014 trata el pago como dinero que sale. Alternativa a (a): descontar los pagos del saldo (obliga a decidir cómo se asigna un pago a los meses y a cuotas con intereses distintos; sin fuente en la hoja del promotor).
+
+> Decisión D6 — **orden de las comprobaciones y mensajes.** Recomendado: `401` sin sesión antes que todo; luego el formato de `tarjetaId`, de `id` y del cuerpo o la query y de `X-Zona-Horaria` (`400`); luego la tarjeta (`404 Tarjeta no encontrada`, igual para ajena e inexistente, nunca `403`); luego el pago (`404 Pago no encontrado`: inexistente, de otro usuario, de otra tarjeta o una transacción que no es un `PAGO_TARJETA`) y solo entonces se guarda o se borra. Una tarjeta ajena con un cuerpo inválido responde `400` (no revela si existe). Fuente: D19 de 5.2.3 y D8 de 5.3.1.
+
+> Decisión D7 — **efectos sobre eliminar la tarjeta y la cuenta.** Recomendado: sin cambios de código en la regla de eliminar tarjeta: con pagos responde `409` (CA-RF33-19) y, con compras o avances, el mensaje de compras tiene prioridad (5.2.3 D17); tras eliminar sus pagos con `DELETE …/pagos/:id` se puede eliminar (CA-RF33-21, ahora de punta a punta). Eliminar compras, avances o cargos no toca los pagos, y los pagos no tocan compras ni cargos. Eliminar la cuenta borra los pagos del usuario (la transacción lleva `usuarioId`, RF-04); no se agrega ningún campo de usuario con otro nombre. Fuente: 5.1.2 D4, `CLAUDE.md` sección 5.
+
+> Decisión D8 — **reportes: sin cambios de código, con pruebas por HTTP.** Recomendado: no se toca `ReportesService`; los criterios CA-RF32-48 a 54 verifican por HTTP lo que exige la EDT: el pago cuenta en `pagosTarjeta` y en el `balance` del mes de su `fecha` (UTC, igual que cualquier transacción: un pago del 2026-12-31 es de diciembre y uno del 2027-01-01 de enero), no suma a `egresos` ni aparece en `GET /reportes/categorias`, y eliminarlo revierte todo. La compra con tarjeta, en cambio, no mueve el balance. `GET /ahorro/progreso` ya resta `pagosTarjeta` a lo ahorrado; no se prueba aquí (es de 4.x). Alternativa: no probar los reportes en este paquete (deja sin verificar el criterio de la EDT).
+
+> Decisión D9 — **idempotencia, zona horaria y atomicidad.** Recomendado: `POST …/pagos` con `@Idempotente()` (misma clave y misma petición: misma respuesta con `Idempotent-Replayed: true` y una sola transacción; otra petición con la misma clave `422`; si la primera falla la clave se libera); dos pagos iguales con claves distintas son legítimos (dos pagos parciales del mismo valor; no se deduplica por contenido); con `IDEMPOTENCIA_OBLIGATORIA=true` el header es obligatorio. `X-Zona-Horaria` solo decide la `fecha` por defecto. La escritura es **una sola** (la transacción): no hay nada que compensar; si falla, `500` y no queda nada. `GET` y `DELETE` no usan ni exigen `Idempotency-Key`. Fuente: `CLAUDE.md` sección 6.
+
+> Decisión D10 — **forma de la respuesta y precisión.** Recomendado: la del contrato de arriba; el `POST` trae `comparacion` anidada (el pago de la lista no la lleva: el estimado depende de datos que cambian); montos sin redondear (RNF-11); sin `usuarioId`, `_id` ni `__v`; `creadaEn` en ISO UTC. Alternativa: aplanar `mes`, `estimado`, `pagado` y `diferencia` dentro del pago (mezcla datos del pago con datos del mes).
+
+> Decisión D11 — **sin función pura ni entidad nueva.** Recomendado: no se agrega `calcularComparacion` ni esquema: la lógica nueva es una suma filtrada y una resta (`pagado − total`) sobre lo que ya calcula 5.3.1, y se prueba entera por HTTP (CA-RF32-01 a 54). Alternativa: función pura `compararPago({ estimado, pagos })` con su suite (da medición directa con Stryker sobre la resta; el implementador puede hacerla sin que ninguna prueba la nombre).
+
+> Decisión D12 — **numeración y contrato con el frontend.** No existen criterios `CA-RF32-nn`; se empieza en `01`. Al aprobarse, el arquitecto deja en `../coordinacion/contratos/` el contrato `pagos.md` para la conformidad del frontend (5.3.3, que está en curso y consume `proyeccion.md`); el Swagger de las rutas será la fuente de verdad una vez implementadas. **CA-RF32-34 modifica CA-RF30-18 (D3); requiere aprobación expresa.**
+
+> Decisión D13 — **valores y reglas por confirmar con la hoja.** Ver el apartado final. Recomendado: aprobar los criterios con los valores calculados aquí (verificados de forma independiente) y contrastarlos con la hoja cuando el promotor la entregue; si algo no coincide, se corrige el criterio (con aprobación) antes de implementar.
+
+---
+
+### RF-32 — Registrar el pago de una tarjeta y compararlo con el total estimado del mes
+
+#### Registrar (`POST /tarjetas/:tarjetaId/pagos`)
+
+#### CA-RF32-01 — Registrar el pago base y ver su comparación con el total estimado del mes
+
+- **Dado** la tarjeta «Visa» con el escenario base (total estimado de 2026-12 = `346270.050165`) y sin pagos
+- **Cuando** envía `POST /tarjetas/<visa>/pagos` con el pago base ($300.000, `2026-12-05`, `TRANSFERENCIA`, «Pago de diciembre»)
+- **Entonces** responde `201` con **exactamente** los campos `id`, `tarjetaId` (el de «Visa»), `valor` 300000, `fecha` `"2026-12-05"`, `metodoPago` `"TRANSFERENCIA"`, `descripcion` `"Pago de diciembre"`, `creadaEn` (ISO UTC) y `comparacion` con `mes` `"2026-12"`, `estimado` `346270.050165`, `pagado` 300000 y `diferencia` `−46270.050165` (6 decimales; negativa: falta por pagar); sin `usuarioId`, `_id`, `__v`, `tipo`, `monto` ni `clasificacionFlujo`
+
+#### CA-RF32-02 — El pago se guarda como una transacción de pago de tarjeta y no toca nada más
+
+- **Dado** la tarjeta «Visa» con el escenario base (una compra, un avance con su transacción y cargos)
+- **Cuando** registra el pago base
+- **Entonces** hay exactamente **una** transacción nueva, del usuario, con `tipo` `EGRESO`, `monto` 300000, `fecha` 2026-12-05T00:00:00.000Z, `metodoPago` `TRANSFERENCIA`, `descripcion` `"Pago de diciembre"`, `clasificacionFlujo` `PAGO_TARJETA`, `tarjetaId` el de «Visa», `deudaId` `null` y `categoriaId` `null` (D1); su `_id` es el `id` de la respuesta; y la tarjeta, las compras, el avance y los cargos quedan exactamente como estaban (incluida la `actualizadaEn` de la tarjeta)
+
+#### CA-RF32-03 — Pagar exactamente el estimado deja la diferencia en cero
+
+- **Dado** la tarjeta «Cero» (tasa 0) con la compra G (estimado de 2026-12 = `10000`)
+- **Cuando** registra un pago de $10.000 con fecha `2026-12-05`
+- **Entonces** `comparacion` es `estimado` 10000, `pagado` 10000 y `diferencia` exactamente `0`
+
+#### CA-RF32-04 — Varios pagos del mes se suman: se puede pagar en partes
+
+- **Dado** la tarjeta «Visa» con el escenario base y el pago base ya registrado ($300.000 el `2026-12-05`)
+- **Cuando** registra un segundo pago de $46.270,05 con fecha `2026-12-20`
+- **Entonces** `comparacion.pagado` es `346270.05` (la suma de los dos pagos del mes), `estimado` `346270.050165` y `diferencia` `−0.000165` (6 decimales); hay dos transacciones de pago
+
+#### CA-RF32-05 — Pagar de más es válido y la diferencia es positiva
+
+- **Dado** la tarjeta «Visa» con el escenario base y sin pagos
+- **Cuando** registra un pago de $400.000 con fecha `2026-12-05`
+- **Entonces** responde `201` con `pagado` 400000 y `diferencia` `53729.949835` (positiva: pagó de más; D5)
+
+#### CA-RF32-06 — Pagar el valor redondeado al peso deja una diferencia mínima, no cero
+
+- **Dado** la tarjeta «Visa» con el escenario base y sin pagos
+- **Cuando** registra un pago de $346.270 (el estimado redondeado al peso que mostraría el cliente) con fecha `2026-12-05`
+- **Entonces** `diferencia` es `−0.050165` (6 decimales): el backend no redondea el estimado, no «ajusta» el pago al estimado y no hay error (RNF-11)
+
+#### CA-RF32-07 — Un mes sin estimado: el pago se acepta y la diferencia es el pago completo
+
+- **Dado** la tarjeta «Vacía» (sin compras ni cargos)
+- **Cuando** registra un pago de $50.000 con fecha `2026-12-05`
+- **Entonces** responde `201` con `comparacion`: `estimado` 0, `pagado` 50000 y `diferencia` 50000 (D5)
+
+#### CA-RF32-08 — La comparación es la del mes de la fecha del pago, no la del mes actual
+
+- **Dado** el reloj en `2026-12-15T12:00:00Z` y la tarjeta «Visa» con el escenario base, con el pago base ya registrado (diciembre)
+- **Cuando** registra un pago de $100.000 con fecha `2027-06-15`
+- **Entonces** `comparacion` es `mes` `"2027-06"`, `estimado` `174802.133172` (A + los cargos de $55.000), `pagado` 100000 (solo ese pago: el de diciembre no cuenta) y `diferencia` `−74802.133172`
+
+#### CA-RF32-09 — El mes lo decide el día de la fecha, también en los extremos del mes
+
+- **Dado** la tarjeta «Visa» con el escenario base y sin pagos
+- **Cuando** registra, en este orden, pagos de $1.000 con fecha `2026-11-30`, de $2.000 con `2026-12-01`, de $3.000 con `2026-12-31` y de $4.000 con `2027-01-01`
+- **Entonces** el `comparacion.mes` y el `pagado` de cada respuesta son `2026-11` y 1000, `2026-12` y 2000, `2026-12` y 5000 (2.000 + 3.000) y `2027-01` y 4000 (sin desfase por zona horaria: la fecha es la que se envía)
+
+#### CA-RF32-10 — Solo cuentan como pagado los pagos de esa tarjeta, de ese usuario y de ese mes
+
+- **Dado** la tarjeta «Visa» con el escenario base, y en la base: un pago de «Débito» (otra tarjeta del mismo usuario) de $700.000 el `2026-12-08`; un pago de «Visa» de $40.000 el `2026-11-30` y otro de $50.000 el `2027-01-01`; un avance de «Visa» con fecha `2026-12-10` (transacción `DINERO_RECIBIDO` con el `tarjetaId` de «Visa», $500.000); un egreso ordinario de $20.000 el `2026-12-12`; un abono a una deuda de $30.000 el `2026-12-15` (sin `tarjetaId`); y un pago de $90.000 del usuario B en la «Visa» de B el `2026-12-05`
+- **Cuando** el usuario A registra el pago base (en «Visa», `2026-12-05`)
+- **Entonces** `comparacion.pagado` es exactamente 300000 y `diferencia` `−46270.050165`: nada de lo demás se suma
+
+#### CA-RF32-11 — Sin `fecha`, el pago es de hoy en la zona del cliente
+
+- **Dado** que en el servidor son las 02:00 UTC del 2026-12-01 (en Bogotá todavía es el 30 de noviembre)
+- **Cuando** registra un pago de $1.000 sin `fecha`, una vez sin header y otra con `X-Zona-Horaria: America/Bogota`
+- **Entonces** el primero guarda `fecha` `"2026-12-01"` (y `comparacion.mes` `"2026-12"`) y el segundo `"2026-11-30"` (y `"2026-11"`)
+
+#### CA-RF32-12 — La fecha puede ser pasada o futura; debe ser una fecha real
+
+- **Dado** una tarjeta del usuario
+- **Cuando** registra pagos con `fecha` `2020-01-15`, `2099-12-31` y `2028-02-29` (año bisiesto)
+- **Entonces** los tres responden `201` y guardan esas fechas a las 00:00 UTC
+
+#### CA-RF32-13 — Fecha inválida
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía el pago base con `fecha` `"ayer"`, `"2026-13-01"`, `"2026-02-30"`, `"2027-02-29"`, `"2026/12/05"`, `"2026-12-5"`, `"2026-12-05T10:00:00Z"`, `20261205`, `null` o el texto vacío
+- **Entonces** cada una responde `400` con `message` arreglo y un texto que empieza por `fecha`, y no se guarda ninguna transacción
+
+#### CA-RF32-14 — El valor es obligatorio y mayor que cero
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía el pago base sin `valor`, y con `valor` `0`, `-1`, `-0.01`, `"300000"` (texto), `null`, `true`, `[]` y `{}`
+- **Entonces** cada una responde `400` con un texto que empieza por `valor` y no se guarda nada
+
+#### CA-RF32-15 — El valor admite hasta dos decimales
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía pagos con `valor` `300000.5`, `0.01` y `1234.56`, y otros con `0.001` y `100.555`
+- **Entonces** los tres primeros responden `201` y guardan el valor exacto en la respuesta y en la transacción (`monto`); los dos últimos responden `400` con un texto que empieza por `valor` y no guardan nada (D2)
+
+#### CA-RF32-16 — El valor tiene un tope
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía pagos con `valor` `999999999999` y `1000000000000`
+- **Entonces** el primero responde `201` y el segundo `400` con un texto que empieza por `valor` (el mismo `MONTO_MAXIMO` de las transacciones)
+
+#### CA-RF32-17 — El método de pago
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía el pago base sin `metodoPago`, y con `metodoPago` `EFECTIVO`, `DEBITO` y `TRANSFERENCIA`, y otros con `TARJETA_CREDITO`, `PSE`, `transferencia`, el texto vacío, `5` y `null`
+- **Entonces** sin `metodoPago` responde `201` con `"TRANSFERENCIA"` (en la respuesta y en la transacción); los tres válidos responden `201` con el método enviado; los demás responden `400` con un texto que empieza por `metodoPago` y no guardan nada (no se paga una tarjeta con otra tarjeta de crédito)
+
+#### CA-RF32-18 — La descripción del pago
+
+- **Dado** una tarjeta del usuario
+- **Cuando** registra pagos sin `descripcion`, con `"  Pago de diciembre  "` y con una de 200 caracteres, y otros con `descripcion` vacía, solo espacios, de 201 caracteres, `123` o `null`
+- **Entonces** el primero responde `201` con `"Pago de tarjeta"` (en la respuesta y en la transacción); el segundo con `"Pago de diciembre"` (recortada); el tercero con los 200 caracteres; los demás responden `400` con un texto que empieza por `descripcion` y no guardan nada
+
+#### CA-RF32-19 — Campos no declarados y cuerpo vacío
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía el pago base con además `tipo`, `monto`, `clasificacionFlujo`, `tarjetaId`, `usuarioId`, `categoriaId`, `deudaId`, `comparacion` o `foo` (cada uno por separado), y también un cuerpo `{}`
+- **Entonces** cada uno responde `400` con un texto que menciona el campo sobrante (el `ValidationPipe` estricto: `property <nombre> should not exist`) y el cuerpo vacío con un texto que empieza por `valor`; no se guarda nada (el cliente no elige el tipo, la clasificación ni la tarjeta)
+
+#### CA-RF32-20 — Tarjeta de otro usuario o inexistente: 404; `tarjetaId` mal formado: 400
+
+- **Dado** la «Visa» del usuario B y un id válido que no existe
+- **Cuando** el usuario A envía el pago base a cada una, y a `/tarjetas/no-es-un-id/pagos`
+- **Entonces** las dos primeras responden `404` con `Tarjeta no encontrada` (el mismo mensaje, nunca `403`) y no queda ninguna transacción; la tercera `400` con un texto que empieza por `tarjetaId`
+
+#### CA-RF32-21 — Primero se valida el cuerpo y después la tarjeta
+
+- **Dado** la «Visa» del usuario B
+- **Cuando** el usuario A envía a esa tarjeta un pago con `valor` `0` y, aparte, el pago base
+- **Entonces** el primero responde `400` (texto que empieza por `valor`) y el segundo `404 Tarjeta no encontrada`: un cuerpo inválido no revela si la tarjeta existe (D6)
+
+#### CA-RF32-22 — La ruta exige sesión
+
+- **Dado** una petición sin header `Authorization`, o con un token inválido o vencido
+- **Cuando** envía el pago base a `POST /tarjetas/<visa>/pagos`, y también a la tarjeta de otro usuario o con un cuerpo inválido
+- **Entonces** todas responden `401` (la sesión se comprueba antes que el cuerpo y que la tarjeta) y no se guarda nada
+
+#### CA-RF32-23 — Repetir con la misma clave de idempotencia no duplica el pago
+
+- **Dado** un pago registrado con `Idempotency-Key` y `201`
+- **Cuando** repite la misma petición con la misma clave
+- **Entonces** recibe la misma respuesta (mismo `id`) con `Idempotent-Replayed: true` y hay **una sola** transacción de pago (no hay `409`)
+
+#### CA-RF32-24 — La misma clave con otra petición se rechaza
+
+- **Dado** una clave ya usada con el pago base
+- **Cuando** se envía con la misma clave un pago con `valor` 1000
+- **Entonces** responde `422` y no cambia nada (sigue una sola transacción, la original)
+
+#### CA-RF32-25 — Dos pagos iguales con claves distintas son legítimos
+
+- **Dado** el pago base ya registrado
+- **Cuando** envía el mismo pago con otra `Idempotency-Key` (o sin ninguna)
+- **Entonces** responde `201` con otro `id`, hay dos transacciones y `comparacion.pagado` es 600000 (no se deduplica por contenido: son dos pagos parciales)
+
+#### CA-RF32-26 — Si falla el guardado, no queda nada y la clave se libera
+
+- **Dado** un entorno en el que el guardado de la transacción falla
+- **Cuando** envía el pago base con una `Idempotency-Key`
+- **Entonces** responde `500` y no queda ninguna transacción; al repetir la misma petición con la misma clave cuando el fallo desaparece, se registra una sola vez (`201`)
+
+#### CA-RF32-27 — Con `IDEMPOTENCIA_OBLIGATORIA` activada, el header es obligatorio
+
+- **Dado** la variable `IDEMPOTENCIA_OBLIGATORIA=true` y una tarjeta del usuario
+- **Cuando** envía el pago base sin `Idempotency-Key`, y otro con una clave
+- **Entonces** el primero responde `400` y no guarda nada; el segundo responde `201`
+
+#### CA-RF32-28 — Una zona horaria inválida se rechaza siempre
+
+- **Dado** una tarjeta del usuario
+- **Cuando** envía el pago base (con `fecha`) y otro sin `fecha`, ambos con `X-Zona-Horaria: Zona/Invalida`
+- **Entonces** ambos responden `400` con un texto que empieza por `X-Zona-Horaria` y no guardan nada
+
+#### Comparar con el total del mes (`GET /tarjetas/:tarjetaId/proyeccion`)
+
+Esta parte **agrega** campos al nivel superior de la respuesta de 5.3.1 (D3); las filas de `proyeccion` no cambian.
+
+#### CA-RF32-29 — La proyección muestra lo pagado y la diferencia, y coincide con la del `POST`
+
+- **Dado** la tarjeta «Visa» con el escenario base y el pago base registrado por la API
+- **Cuando** consulta la proyección de `mes=2026-12`
+- **Entonces** el nivel superior trae `pagado` 300000 y `diferencia` `−46270.050165` (6 decimales), y esos dos valores son iguales (`toBeCloseTo`, 9 decimales) a `comparacion.pagado` y `comparacion.diferencia` de la respuesta del `POST`; `total` es `346270.050165`: es el `estimado` de `comparacion`
+
+#### CA-RF32-30 — Sin pagos, `pagado` es 0 y la diferencia es el total completo
+
+- **Dado** la tarjeta «Visa» con el escenario base y sin pagos
+- **Cuando** consulta `mes=2026-12` y `mes=2099-12`
+- **Entonces** en el primero `pagado` es 0 y `diferencia` `−346270.050165`; en el segundo `pagado` 0 y `diferencia` `−55000` (`total` 55.000, solo los cargos activos, D3 de 5.3.1); en ningún caso falta el campo ni es `null`
+
+#### CA-RF32-31 — Solo cuentan los pagos del mes consultado
+
+- **Dado** la tarjeta «Visa» con el escenario base y pagos registrados de $40.000 el `2026-11-30`, de $100.000 el `2026-12-01`, de $200.000 el `2026-12-31` y de $50.000 el `2027-01-01`
+- **Cuando** consulta `mes=2026-11`, `mes=2026-12` y `mes=2027-01`
+- **Entonces** `pagado` es 40000, 300000 y 50000, y `diferencia` `−15000` (total 55.000), `−46270.050165` y `−214543.218234` (total `264543.218234`)
+
+#### CA-RF32-32 — El dinero recibido de un avance y los pagos de otra tarjeta no cuentan como pagado
+
+- **Dado** la tarjeta «Visa» con el escenario base (con el avance B registrado por `POST …/avances`: su transacción `DINERO_RECIBIDO` lleva el `tarjetaId` de «Visa»), un pago de $700.000 de «Débito» en 2026-12 y ningún pago de «Visa»
+- **Cuando** consulta la proyección de «Visa» con `mes=2026-12`
+- **Entonces** `pagado` es 0 y `diferencia` `−346270.050165`
+
+#### CA-RF32-33 — Los pagos no cambian el total estimado, el saldo ni las filas de la proyección
+
+- **Dado** la tarjeta «Visa» con el escenario base y la proyección de `mes=2026-12` ya consultada
+- **Cuando** registra el pago base y vuelve a consultar
+- **Entonces** `cuotas`, `cargosFijos`, `total` y `saldoPendiente` (`1766528.890201`) del nivel superior y **todos** los elementos de `proyeccion` son idénticos a los de antes, y cada fila de `proyeccion` conserva exactamente sus cinco claves (`mes`, `cuotas`, `cargosFijos`, `total`, `saldoPendiente`): el pago no se descuenta del saldo (D5)
+
+#### CA-RF32-34 — La forma del nivel superior de la proyección crece con `pagado` y `diferencia` (modifica CA-RF30-18)
+
+- **Dado** el escenario base
+- **Cuando** consulta `GET /tarjetas/<visa>/proyeccion?mes=2026-12`
+- **Entonces** el nivel superior trae **exactamente** las claves `tarjetaId`, `mes`, `cuotas`, `cargosFijos`, `total`, `saldoPendiente`, `pagado`, `diferencia` y `proyeccion` (antes, sin `pagado` ni `diferencia`); `pagado` y `diferencia` son números
+
+> Modifica un criterio ya aprobado: CA-RF30-18 (5.3.1) dice «exactamente las claves…» y su prueba compara el nivel superior con siete claves. Con la opción recomendada de D3 esa prueba debe pasar a nueve claves; **requiere la aprobación expresa del desarrollador** (como la de CA-RF26-02 en 5.2.3). Con otra opción de D3 este criterio y CA-RF32-29 a 33 cambian de ruta o se eliminan y no se toca ninguna prueba aprobada.
+
+#### Listar (`GET /tarjetas/:tarjetaId/pagos`)
+
+#### CA-RF32-35 — La lista de pagos: forma y orden
+
+- **Dado** «Visa» con tres pagos creados por la API: $1.000 el `2026-11-30`, $2.000 el `2026-12-05` y $3.000 el `2026-12-05` (este último creado después)
+- **Cuando** envía `GET /tarjetas/<visa>/pagos`
+- **Entonces** responde `200` con `{ items }` de tres pagos en este orden: $3.000, $2.000 y $1.000 (fecha descendente y, a igual fecha, el creado después primero); cada uno con **exactamente** `id`, `tarjetaId`, `valor`, `fecha`, `metodoPago`, `descripcion` y `creadaEn` (sin `comparacion`, `usuarioId`, `_id` ni `__v`)
+
+#### CA-RF32-36 — Solo los pagos de esa tarjeta
+
+- **Dado** «Visa» con un pago de la API, y en la base: un pago de «Débito» del mismo usuario, un pago del usuario B, el avance de «Visa» (transacción `DINERO_RECIBIDO` con su `tarjetaId`), un egreso ordinario y un abono a una deuda
+- **Cuando** lista los pagos de «Visa»
+- **Entonces** `items` trae **solo** el pago de «Visa»
+
+#### CA-RF32-37 — Filtro por mes y consulta inválida
+
+- **Dado** «Visa» con pagos el `2026-11-30`, el `2026-12-05` y el `2027-01-01`
+- **Cuando** lista con `?mes=2026-12`, con `?mes=2026-13`, `?mes=2026-1`, `?mes=` y `?mes=2026-12&mes=2027-01`, y con `?mes=2026-12&foo=1`
+- **Entonces** el primero responde `200` con solo el del `2026-12-05`; los de formato inválido, el repetido y el parámetro no declarado responden `400` con un texto que empieza por `mes` (los cuatro primeros) o por `foo` (el último)
+
+#### CA-RF32-38 — Sin pagos: lista vacía
+
+- **Dado** una tarjeta del usuario sin pagos
+- **Cuando** lista sus pagos
+- **Entonces** responde `200` con `{ "items": [] }` (no es `404`)
+
+#### CA-RF32-39 — La lista exige sesión y una tarjeta propia
+
+- **Dado** la «Visa» del usuario B y un id válido que no existe
+- **Cuando** el usuario A lista los pagos de cada una, lista `/tarjetas/no-es-un-id/pagos`, lista la de B con `mes=2026-13`, y una petición sin sesión lista los de la tarjeta de A
+- **Entonces** `404 Tarjeta no encontrada` (ambas, nunca `403`, sin ningún dato de B), `400` (texto que empieza por `tarjetaId`), `400` (texto que empieza por `mes`: la consulta inválida va antes que la tarjeta) y `401`
+
+#### CA-RF32-40 — Listar no guarda nada ni usa la idempotencia
+
+- **Dado** «Visa» con pagos y `IDEMPOTENCIA_OBLIGATORIA=true`
+- **Cuando** lista varias veces, con y sin `Idempotency-Key`
+- **Entonces** todas responden `200` con el mismo cuerpo, sin `Idempotent-Replayed`, sin guardar ninguna clave, y las colecciones de transacciones, tarjetas, compras y cargos quedan idénticas
+
+#### Eliminar (`DELETE /tarjetas/:tarjetaId/pagos/:id`)
+
+#### CA-RF32-41 — Eliminar un pago elimina su transacción y solo la suya
+
+- **Dado** «Visa» con dos pagos idénticos al pago base (mismo valor, fecha y descripción, con claves distintas: `pagado` de `mes=2026-12` = 600000), el avance B (con su transacción de dinero recibido) y un egreso ordinario
+- **Cuando** elimina uno de los pagos con `DELETE`, y luego repite el mismo `DELETE`
+- **Entonces** el primero responde `204` sin cuerpo; queda un pago (el otro), el avance con su transacción y el egreso ordinario intactos; la proyección de `mes=2026-12` pasa de `pagado` 600000 a 300000; repetir el `DELETE` responde `404 Pago no encontrado`
+
+#### CA-RF32-42 — Solo se elimina un pago propio de esa tarjeta: 404 en los demás casos
+
+- **Dado** «Visa» y «Débito» del usuario A con un pago cada una; la «Visa» del usuario B con un pago; el avance de «Visa» (su transacción `DINERO_RECIBIDO`) y un egreso ordinario de A
+- **Cuando** A envía `DELETE /tarjetas/<visa>/pagos/<id>` con: un id válido que no existe, el id del pago de B, el id del pago de «Débito», el id de la transacción del avance y el id del egreso ordinario
+- **Entonces** todos responden `404` con `Pago no encontrado` y ninguna transacción cambia (solo se eliminan pagos de la tarjeta de la ruta)
+
+#### CA-RF32-43 — Tarjeta ajena, ids mal formados y sesión al eliminar
+
+- **Dado** la «Visa» del usuario B con un pago, y un id de tarjeta válido que no existe
+- **Cuando** el usuario A envía `DELETE` con la tarjeta de B y el id de su pago, con la tarjeta inexistente, con `tarjetaId` `no-es-un-id` o con `id` `no-es-un-id` (sobre una tarjeta propia), y una petición sin sesión
+- **Entonces** `404 Tarjeta no encontrada` (los dos primeros: el pago de B sigue existiendo), `400` con un texto que empieza por `tarjetaId` y otro por `id`, y `401`; el `400` y el `401` van antes que cualquier búsqueda
+
+#### Los pagos entre las demás transacciones y las demás reglas de la tarjeta
+
+#### CA-RF32-44 — El pago aparece en `GET /transacciones` y solo se gestiona desde la tarjeta
+
+- **Dado** el pago base registrado por la API
+- **Cuando** el usuario lista `GET /transacciones`, y envía `PATCH` (con `{ "monto": 1 }`) y `DELETE` a `/transacciones/<id del pago>`
+- **Entonces** el listado trae el pago con `tipo` `EGRESO`, `monto` 300000, `fecha` `"2026-12-05"`, `clasificacionFlujo` `PAGO_TARJETA`, `metodoPago` `TRANSFERENCIA`, `categoriaId` `null` y `categoria` `null`; el `PATCH` y el `DELETE` responden `409` y el pago no cambia
+
+#### CA-RF32-45 — Una tarjeta con pagos no se elimina hasta eliminarlos desde la tarjeta
+
+- **Dado** una tarjeta «Débito» sin compras con un pago registrado por la API
+- **Cuando** envía `DELETE /tarjetas/<débito>`, elimina el pago con `DELETE …/pagos/<id>` y repite el `DELETE` de la tarjeta; y, aparte, lo intenta con una tarjeta que tiene un pago y una compra
+- **Entonces** el primero responde `409` con `No se puede eliminar una tarjeta que ya tiene pagos registrados` y no borra nada; después de eliminar el pago, `204`; con pago y compra responde `409` con `No se puede eliminar una tarjeta que ya tiene compras registradas` (prioridad de las compras, 5.2.3 D17)
+
+#### CA-RF32-46 — Al eliminar la cuenta no queda ningún pago del usuario
+
+- **Dado** un usuario con un pago registrado por la API y otro usuario con el suyo
+- **Cuando** el primero elimina su cuenta (`DELETE /usuarios/me`, RF-04)
+- **Entonces** no queda ninguna transacción con su `usuarioId` y el pago del otro usuario sigue intacto
+
+#### CA-RF32-47 — Eliminar compras, avances o cargos no toca los pagos
+
+- **Dado** «Visa» con la compra C, el avance B (registrado por la API) y un cargo fijo, y el pago base registrado
+- **Cuando** elimina la compra C, el avance B y el cargo fijo con sus `DELETE`
+- **Entonces** el pago sigue existiendo con los mismos datos, `GET …/pagos` lo sigue listando y la comparación de `mes=2026-12` conserva `pagado` 300000 (solo cambia el estimado, porque cambiaron las cuotas y los cargos)
+
+#### Efecto en los reportes (`/reportes`)
+
+Las consultas usan los endpoints de reportes que ya existen; el pago siempre se registra con `POST …/pagos`.
+
+#### CA-RF32-48 — El pago afecta el balance del mes del pago (criterio de la EDT)
+
+- **Dado** un usuario sin otros movimientos y el pago base registrado el `2026-12-05`
+- **Cuando** consulta `GET /reportes/periodo?mes=2026-12`, `?mes=2026-11` y `?mes=2027-01`
+- **Entonces** en `2026-12`: `pagosTarjeta` 300000, `egresos` 0, `ingresos` 0, `dineroRecibido` 0 y `balance` −300000; en `2026-11` y `2027-01` todo es 0 (el pago es del mes en que se hizo)
+
+#### CA-RF32-49 — El pago se combina con los demás movimientos del mes
+
+- **Dado** un ingreso de $2.000.000 en «Salario» el `2026-12-01`, un egreso ordinario de $50.000 en «Hogar» el `2026-12-10` y el pago base ($300.000, `2026-12-05`)
+- **Cuando** consulta `GET /reportes/periodo?mes=2026-12`
+- **Entonces** `ingresos` 2000000, `egresos` 50000, `pagosTarjeta` 300000 y `balance` 1650000 (2.000.000 − 50.000 − 300.000)
+
+#### CA-RF32-50 — El pago no aparece en el gasto por categoría (criterio de la EDT)
+
+- **Dado** el pago base y, en otra corrida, además el egreso ordinario de $50.000 en «Hogar» del `2026-12-10`
+- **Cuando** consulta `GET /reportes/categorias?mes=2026-12` en cada corrida
+- **Entonces** con solo el pago: `total` 0 y `categorias` `[]`; con el egreso: `total` 50000 y una sola categoría, «Hogar», de 50000 y 100 %: el pago no se cuenta por categoría ni en «Sin categoría» (no se cuenta dos veces, ADR-014)
+
+#### CA-RF32-51 — En los reportes el mes del pago es el de su fecha
+
+- **Dado** pagos de $1.000 el `2026-12-31` y de $2.000 el `2027-01-01`
+- **Cuando** consulta `GET /reportes/periodo?mes=2026-12` y `?mes=2027-01`
+- **Entonces** `pagosTarjeta` y `balance` son 1000 y −1000 en `2026-12`, y 2000 y −2000 en `2027-01`
+
+#### CA-RF32-52 — La evolución y la comparación del balance incluyen el pago
+
+- **Dado** el pago base registrado el `2026-12-05` y ningún otro movimiento
+- **Cuando** consulta `GET /reportes/evolucion?desde=2026-12&hasta=2026-12`, `GET /reportes/comparacion?tipo=balance` y `…?tipo=ingresos-egresos`
+- **Entonces** la evolución trae el punto `2026-12` con `balance` −300000; la comparación de balance trae `2026-12` con `balance` −300000; la de ingresos y egresos trae `2026-12` con `ingresos` 0 y `egresos` 0 (el pago no es gasto propio)
+
+#### CA-RF32-53 — La compra con tarjeta no mueve el balance; su pago sí
+
+- **Dado** «Visa» con la compra de referencia registrada por la API (A: $1.254.700 a 12 cuotas, `fecha` `2026-11-10`, `primerPago` `2026-12`) y sin otros movimientos
+- **Cuando** consulta `GET /reportes/periodo?mes=2026-11`; luego registra un pago de $119.802,13 el `2026-12-05` y consulta `?mes=2026-11` y `?mes=2026-12`
+- **Entonces** `2026-11` queda con `balance` 0 y `egresos` 0 antes y después del pago (la compra no afecta el balance el día de la compra) y `2026-12` queda con `pagosTarjeta` 119802.13 y `balance` −119802.13 (lo afecta el pago de la tarjeta, ADR-014)
+
+#### CA-RF32-54 — Eliminar el pago revierte el balance
+
+- **Dado** el pago base y el ingreso y el egreso de CA-RF32-49
+- **Cuando** elimina el pago con `DELETE …/pagos/<id>` y consulta `GET /reportes/periodo?mes=2026-12`
+- **Entonces** `pagosTarjeta` es 0 y `balance` 1950000 (2.000.000 − 50.000)
+
+---
+
+### Documentación Swagger
+
+`src/common/swagger.spec.ts` descubre todos los controladores y fallará si alguna de las tres rutas nuevas o sus DTO (de entrada, de salida y de query) no tiene etiqueta (`tarjetas`), resumen, descripción detallada, respuestas de error (`400`, `401`, `404`, `409`, `422` y `500` según apliquen) y `description` + `example` en cada propiedad (incluidas las dos nuevas de la proyección, `pagado` y `diferencia`); además, `POST …/pagos`, que responde `201`, debe documentar el header `Idempotency-Key`, y documenta `X-Zona-Horaria` (`ApiZonaHoraria`) porque decide la `fecha` por defecto. `GET …/pagos` y `DELETE …/pagos/:id` **no** documentan `Idempotency-Key`. La descripción de `POST …/pagos` debe explicar, para que otro desarrollador no tenga que leer el código: que el pago es un egreso guardado como transacción `PAGO_TARJETA` sin categoría; que afecta el balance del mes de su `fecha` y **no** el gasto por categoría (ADR-014); que una compra con tarjeta no es un pago ni mueve el balance; el significado de `comparacion` (`estimado` = total estimado del mes, `pagado` = suma de los pagos de esa tarjeta en el mes, `diferencia = pagado − estimado`: negativa falta, positiva pagó de más) y que el mes es el de la `fecha`; que se puede pagar menos o más y en partes; que no descuenta el `saldoPendiente`; los valores permitidos de `metodoPago` (y su valor por defecto) y por qué no `TARJETA_CREDITO`; el máximo de 2 decimales y el tope de `valor`; la `fecha` por defecto y `X-Zona-Horaria`; que un pago equivocado se elimina y se registra de nuevo; la idempotencia y el orden de las comprobaciones. Deben actualizarse: la descripción de `GET /tarjetas/:tarjetaId/proyeccion` (hoy dice «No considera pagos de la tarjeta… llegan con RF-32») para explicar `pagado` y `diferencia` y que `cuotas`, `total` y `saldoPendiente` siguen sin considerarlos; el esquema `ProyeccionRespuestaDto` (dos propiedades nuevas, solo en el nivel superior); la descripción de `DELETE /tarjetas/:id` («para eliminarla primero hay que eliminar esos pagos»: ahora con `DELETE …/pagos/:id`); y la descripción general de la etiqueta `tarjetas` en `src/common/swagger.ts` para mencionar los pagos, su comparación y que un pago solo se edita o elimina desde la tarjeta (en `/transacciones` responde `409`). Debe existir un esquema de error para `404 Pago no encontrado` en `src/common/dto/error-respuesta.dto.ts`. Los criterios CA-RF32-13 a 22 y 39 a 43 fijan los códigos de error que deben documentarse.
+
+---
+
+## Índice de criterios del paquete 5.3.2
+
+- **RF-32:** CA-RF32-01 a CA-RF32-54. Registrar: 01 a 28 (forma y comparación: 01; transacción guardada: 02; comparación y sumas: 03 a 10; fecha: 11 a 13; valor: 14 a 16; método y descripción: 17 y 18; campos no declarados: 19; tarjeta y orden: 20 y 21; sesión: 22; idempotencia: 23 a 27; zona: 28); comparar en la proyección: 29 a 34; listar: 35 a 40; eliminar: 41 a 43; transacciones y reglas de la tarjeta: 44 a 47; reportes: 48 a 54.
+- **Total:** 54 criterios, todos **[HTTP]** (D11). Modifica un criterio ya aprobado: CA-RF30-18 (por CA-RF32-34).
+
+### Criterios con «Pendiente de decisión»
+
+Ninguno de los criterios usa la marca, porque cada regla no definida por un RF o ADR es una decisión de arriba (D1 a D13) que el desarrollador debe aprobar. Reglas que dependen de ellas: D1 (la ruta de todos los criterios y la categoría `null`: CA-RF32-02, 44), D2 (cuerpo y validaciones: CA-RF32-11 a 19, 28), D3 (comparación: CA-RF32-01, 03 a 10, 29 a 34), D4 (listar, eliminar, sin editar: CA-RF32-35 a 45), D5 (CA-RF32-05 a 07, 33), D6 (CA-RF32-20 a 22, 39, 42, 43), D7 (CA-RF32-45 a 47), D8 (CA-RF32-48 a 54), D9 (CA-RF32-23 a 28), D10 (formas), D11 (capas) y D13 (los valores por confirmar).
+
+### Valores y reglas por confirmar con la hoja del promotor
+
+La hoja no está disponible; el único valor verificado contra ella es $1.254.700 a 12 cuotas con E.A. 29,21 % → $119.802,13. Las cifras de este paquete salen de la fórmula de `CLAUDE.md` sección 5 y de restar el pago al total estimado de 5.3.1; **conviene contrastarlas con la hoja** antes de aprobar:
+
+1. **Qué se compara con lo pagado (D3).** El total estimado del mes (cuotas vigentes + cargos fijos activos) frente a la suma de los pagos del mes, o solo las cuotas. RF-32 dice «el total estimado del mes», que es el de RF-30 (con cargos).
+2. **Signo y nombre de la diferencia (D3).** `pagado − estimado` (negativa = falta por pagar) frente a «pendiente = estimado − pagado». Cambia el signo de todos los valores de CA-RF32-01 a 10 y 29 a 31.
+3. **Si un pago de un mes puede cubrir cuotas de otros meses o descontar el saldo (D5).** Hoy no: se compara solo con el mes de su fecha y el saldo no cambia.
+4. **Decimales y redondeo del pago (D2).** 2 decimales para el valor pagado; el estimado llega sin redondear (la diferencia de pagar $346.270 contra el estimado de CA-RF32-06 es `−0.050165`). Si la hoja redondea el estimado al peso antes de comparar, la diferencia sería 0 en ese caso.
+5. **Método de pago por defecto (D2).** `TRANSFERENCIA`: sin fuente; si el frontend prefiere pedirlo, pasa a obligatorio y solo cambia CA-RF32-17.
+6. **Cargos fijos en meses distintos del actual (D3 de 5.3.1).** El `estimado` de un mes pasado o futuro usa los cargos activos de hoy (no hay historial): lo hereda este paquete.
