@@ -8,12 +8,14 @@ import { CargosRecurrentesController } from './cargos-recurrentes.controller.js'
 import { CompraCredito, CompraCreditoSchema } from './compra-credito.schema.js';
 import { ComprasController } from './compras.controller.js';
 import { ComprasService } from './compras.service.js';
+import { PagosController } from './pagos.controller.js';
+import { PagosService } from './pagos.service.js';
 import { TarjetaCredito, TarjetaCreditoSchema } from './tarjeta-credito.schema.js';
 import { TarjetasController } from './tarjetas.controller.js';
 import { TarjetasService } from './tarjetas.service.js';
 
 // Registrar los modelos aquí es lo que permite que AuthService.eliminarCuenta() borre las tarjetas, cargos y compras del usuario.
-// Transaccion se lee (pagos de una tarjeta) y se escribe (la transacción de dinero recibido de un avance) sin importar
+// Transaccion se lee y se escribe (pagos de una tarjeta y la transacción de dinero recibido de un avance) sin importar
 // TransaccionesModule, como hace ReportesModule. CategoriasModule da la validación de la categoría de una compra.
 @Module({
   imports: [
@@ -26,7 +28,7 @@ import { TarjetasService } from './tarjetas.service.js';
       { name: Transaccion.name, schema: TransaccionSchema },
     ]),
   ],
-  controllers: [TarjetasController, CargosRecurrentesController, ComprasController],
-  providers: [TarjetasService, ComprasService],
+  controllers: [TarjetasController, CargosRecurrentesController, ComprasController, PagosController],
+  providers: [TarjetasService, ComprasService, PagosService],
 })
 export class TarjetasModule {}

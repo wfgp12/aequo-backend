@@ -190,6 +190,16 @@ export class ErrorCargoNoEncontradoDto extends ErrorNoEncontradoBaseDto {
   message: string;
 }
 
+export class ErrorPagoNoEncontradoDto extends ErrorNoEncontradoBaseDto {
+  @ApiProperty({
+    type: String,
+    example: 'Pago no encontrado',
+    description:
+      'El pago no existe, es de otro usuario, es de otra tarjeta que la de la ruta o la transacción no es un pago de tarjeta; si la tarjeta de la ruta no es propia, el mensaje es `Tarjeta no encontrada`.',
+  })
+  message: string;
+}
+
 export class ErrorCompraNoEncontradaDto extends ErrorNoEncontradoBaseDto {
   @ApiProperty({
     type: String,

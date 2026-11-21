@@ -54,6 +54,7 @@ export const MENSAJES = {
   tarjetaNoEncontrada: 'Tarjeta no encontrada',
   compraNoEncontrada: 'Compra no encontrada',
   categoriaNoEncontrada: 'Categoría no encontrada',
+  pagoNoEncontrado: 'Pago no encontrado',
   conPagos: 'No se puede eliminar una tarjeta que ya tiene pagos registrados',
   conCompras:
     'No se puede eliminar una tarjeta que ya tiene compras registradas',
@@ -243,6 +244,32 @@ export interface EntornoCompras {
     consulta?: string,
     opciones?: Opciones,
   ): request.Test;
+  /** `POST /tarjetas/:tarjetaId/pagos` (paquete 5.3.2). */
+  crearPago(
+    tarjetaId: string,
+    cuerpo: unknown,
+    opciones?: Opciones,
+  ): request.Test;
+  /** `GET /tarjetas/:tarjetaId/pagos` con la query ya armada (`'mes=2026-12'`); sin ella, sin query. */
+  listarPagos(
+    tarjetaId: string,
+    consulta?: string,
+    opciones?: Opciones,
+  ): request.Test;
+  /** `DELETE /tarjetas/:tarjetaId/pagos/:id`. */
+  eliminarPago(
+    tarjetaId: string,
+    id: string,
+    opciones?: Opciones,
+  ): request.Test;
+  /** `{ valor: 300000, fecha: '2026-12-05', metodoPago: 'TRANSFERENCIA', descripcion: 'Pago de diciembre' }`. */
+  pagoBase(cambios?: Record<string, unknown>): Record<string, unknown>;
+  /** `DELETE /tarjetas/:tarjetaId/cargos/:id`. */
+  eliminarCargo(
+    tarjetaId: string,
+    id: string,
+    opciones?: Opciones,
+  ): request.Test;
   editarTarjeta(id: string, cuerpo: unknown, opciones?: Opciones): request.Test;
   eliminarTarjeta(id: string, opciones?: Opciones): request.Test;
   /** `PATCH /tarjetas/:tarjetaId/cargos/:id`. */
@@ -262,6 +289,12 @@ export interface EntornoCompras {
   eliminarCategoria(id: string, opciones?: Opciones): request.Test;
   /** `GET /reportes/periodo` con la query opcional (`'mes=2026-11'`). */
   periodo(consulta?: string, opciones?: Opciones): request.Test;
+  /** `GET /reportes/categorias` con la query opcional (`'mes=2026-12'`). */
+  categoriasReporte(consulta?: string, opciones?: Opciones): request.Test;
+  /** `GET /reportes/evolucion` con la query opcional (`'desde=2026-12&hasta=2026-12'`). */
+  evolucion(consulta?: string, opciones?: Opciones): request.Test;
+  /** `GET /reportes/comparacion` con la query (`'tipo=balance'`). */
+  comparacion(consulta?: string, opciones?: Opciones): request.Test;
   /** `DELETE /usuarios/me`. */
   eliminarCuenta(opciones?: Opciones): request.Test;
   /** Fija «hoy» (solo `Date`) y vuelve a emitir las sesiones para que sean coherentes con el reloj simulado. */
@@ -291,6 +324,15 @@ export interface EntornoCompras {
   ): Promise<string>;
   /** Inserta un pago de tarjeta (transacción `PAGO_TARJETA` con `tarjetaId`) y devuelve su id. */
   sembrarPago(tarjetaId: string, usuarioId?: string): Promise<string>;
+  /**
+   * Inserta directo en la base un pago de tarjeta como lo guardaría el POST (`EGRESO`, `PAGO_TARJETA`, sin categoría,
+   * `TRANSFERENCIA`, $300.000 el 2026-12-05); `datos` cambia los campos. Devuelve su id.
+   */
+  sembrarPagoCon(
+    tarjetaId: string,
+    datos?: Doc,
+    usuarioId?: string,
+  ): Promise<string>;
   /** Inserta una transacción ordinaria (un egreso en «Hogar» de $1.000) y devuelve su id. */
   sembrarTransaccion(datos?: Doc, usuarioId?: string): Promise<string>;
 }
@@ -521,6 +563,36 @@ export function usarEntornoCompras(): EntornoCompras {
           cuerpo,
           opciones,
         ),
+      crearPago: (tarjetaId: string, cuerpo: unknown, opciones?: Opciones) =>
+        enviar('post', `/tarjetas/${tarjetaId}/pagos`, cuerpo, opciones),
+      listarPagos: (tarjetaId: string, texto = '', opciones?: Opciones) =>
+        enviar(
+          'get',
+          `/tarjetas/${tarjetaId}/pagos${consulta(texto)}`,
+          undefined,
+          opciones,
+        ),
+      eliminarPago: (tarjetaId: string, id: string, opciones?: Opciones) =>
+        enviar(
+          'delete',
+          `/tarjetas/${tarjetaId}/pagos/${id}`,
+          undefined,
+          opciones,
+        ),
+      pagoBase: (cambios: Record<string, unknown> = {}) => ({
+        valor: 300000,
+        fecha: '2026-12-05',
+        metodoPago: 'TRANSFERENCIA',
+        descripcion: 'Pago de diciembre',
+        ...cambios,
+      }),
+      eliminarCargo: (tarjetaId: string, id: string, opciones?: Opciones) =>
+        enviar(
+          'delete',
+          `/tarjetas/${tarjetaId}/cargos/${id}`,
+          undefined,
+          opciones,
+        ),
       editarTarjeta: (id: string, cuerpo: unknown, opciones?: Opciones) =>
         enviar('patch', `/tarjetas/${id}`, cuerpo, opciones),
       eliminarTarjeta: (id: string, opciones?: Opciones) =>
@@ -537,6 +609,27 @@ export function usarEntornoCompras(): EntornoCompras {
         enviar(
           'get',
           `/reportes/periodo${consulta(texto)}`,
+          undefined,
+          opciones,
+        ),
+      categoriasReporte: (texto = '', opciones?: Opciones) =>
+        enviar(
+          'get',
+          `/reportes/categorias${consulta(texto)}`,
+          undefined,
+          opciones,
+        ),
+      evolucion: (texto = '', opciones?: Opciones) =>
+        enviar(
+          'get',
+          `/reportes/evolucion${consulta(texto)}`,
+          undefined,
+          opciones,
+        ),
+      comparacion: (texto = '', opciones?: Opciones) =>
+        enviar(
+          'get',
+          `/reportes/comparacion${consulta(texto)}`,
           undefined,
           opciones,
         ),
@@ -616,6 +709,25 @@ export function usarEntornoCompras(): EntornoCompras {
             metodoPago: 'TRANSFERENCIA',
             clasificacionFlujo: 'PAGO_TARJETA',
             tarjetaId,
+          })
+        ).id,
+      sembrarPagoCon: async (
+        tarjetaId: string,
+        datos: Doc = {},
+        usuarioId = USUARIO_ID,
+      ) =>
+        (
+          await transacciones.create({
+            usuarioId,
+            tipo: 'EGRESO',
+            monto: 300000,
+            fecha: dia('2026-12-05'),
+            categoriaId: null,
+            metodoPago: 'TRANSFERENCIA',
+            descripcion: 'Pago de diciembre',
+            clasificacionFlujo: 'PAGO_TARJETA',
+            tarjetaId,
+            ...datos,
           })
         ).id,
       sembrarTransaccion: async (datos: Doc = {}, usuarioId = USUARIO_ID) =>

@@ -15,6 +15,7 @@ import type { CrearCompraDto } from './dto/crear-compra.dto.js';
 import type { ListarComprasQueryDto } from './dto/listar-compras-query.dto.js';
 import type { VistaPreviaCuotaQueryDto } from './dto/vista-previa-cuota-query.dto.js';
 import type { VistaPreviaCuotaRespuestaDto } from './dto/vista-previa-cuota-respuesta.dto.js';
+import { aFecha, rangoDelMes } from './fechas.js';
 import type { TarjetaCreditoDocument } from './tarjeta-credito.schema.js';
 import { TarjetasService } from './tarjetas.service.js';
 import { validarCuerpo } from './validar-cuerpo.js';
@@ -23,9 +24,6 @@ const MENSAJES = {
   compraNoEncontrada: 'Compra no encontrada',
   categoriaNoEncontrada: 'Categoría no encontrada',
 };
-
-/** Las fechas de calendario se guardan a medianoche UTC del día indicado. */
-const aFecha = (dia: string) => new Date(`${dia}T00:00:00.000Z`);
 
 /**
  * Lo que el cliente puede ver de una compra o un avance: sin usuario, `_id` ni `__v`, y con la cuota y el mes del
@@ -49,12 +47,6 @@ export function aCompraRespuesta(compra: CompraCreditoDocument): CompraRespuesta
     creadaEn: compra.createdAt.toISOString(),
     actualizadaEn: compra.updatedAt.toISOString(),
   };
-}
-
-/** `[primer día del mes, primer día del mes siguiente)` de un `YYYY-MM`, para filtrar por la fecha de la compra. */
-function rangoDelMes(mes: string) {
-  const [anio, numero] = mes.split('-').map(Number);
-  return { $gte: new Date(Date.UTC(anio, numero - 1, 1)), $lt: new Date(Date.UTC(anio, numero, 1)) };
 }
 
 /** Lo que de una edición de avance cambia también en su transacción de dinero recibido. */

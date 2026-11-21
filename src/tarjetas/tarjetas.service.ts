@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { InjectModel } from '@nestjs/mongoose';
 import { type Model, Types } from 'mongoose';
 import { diaEnZona } from '../common/zona-horaria.js';
+import { ClasificacionFlujo } from '../transacciones/transaccion.enums.js';
 import { Transaccion } from '../transacciones/transaccion.schema.js';
 import type { ActualizarCargoDto } from './dto/actualizar-cargo.dto.js';
 import type { ActualizarTarjetaDto } from './dto/actualizar-tarjeta.dto.js';
@@ -14,6 +15,7 @@ import type { ProyeccionRespuestaDto } from './dto/proyeccion-respuesta.dto.js';
 import type { TarjetaRespuestaDto } from './dto/tarjeta-respuesta.dto.js';
 import { CargoRecurrente, type CargoRecurrenteDocument } from './cargo-recurrente.schema.js';
 import { CompraCredito } from './compra-credito.schema.js';
+import { rangoDelMes } from './fechas.js';
 import { calcularProyeccion } from './proyeccion-tarjeta.js';
 import { TarjetaCredito, type TarjetaCreditoDocument } from './tarjeta-credito.schema.js';
 import { validarCuerpo } from './validar-cuerpo.js';
@@ -128,8 +130,9 @@ export class TarjetasService {
   // ------------------------------------------------------------------------------------------- proyección
 
   /**
-   * Total del mes, saldo pendiente y proyección de una tarjeta propia (RF-30, RF-31). Solo lee: el cálculo es de
-   * `calcularProyeccion`. Sin `mes`, el de referencia es el actual en la zona del cliente.
+   * Total del mes, saldo pendiente y proyección de una tarjeta propia (RF-30, RF-31), más lo pagado en el mes de
+   * referencia y su diferencia con el total (RF-32). El cálculo es de `calcularProyeccion`; los pagos no lo alteran.
+   * Sin `mes`, el de referencia es el actual en la zona del cliente.
    */
   async proyectarPagos(
     usuarioId: string,
@@ -139,9 +142,27 @@ export class TarjetasService {
   ): Promise<ProyeccionRespuestaDto> {
     const tarjeta = await this.obtenerPropia(usuarioId, tarjetaId);
     const filtro = { usuarioId: tarjeta.usuarioId, tarjetaId: tarjeta._id };
-    const [compras, cargos] = await Promise.all([this.compras.find(filtro), this.cargos.find(filtro)]);
-    const proyeccion = calcularProyeccion({ mes: mes ?? diaEnZona(new Date(), zona).slice(0, 7), compras, cargos });
-    return { tarjetaId: String(tarjeta._id), ...proyeccion };
+    const referencia = mes ?? diaEnZona(new Date(), zona).slice(0, 7);
+    const [compras, cargos, pagos] = await Promise.all([
+      this.compras.find(filtro),
+      this.cargos.find(filtro),
+      this.pagosDe(tarjeta, referencia),
+    ]);
+    const proyeccion = calcularProyeccion({ mes: referencia, compras, cargos });
+    const pagado = pagos.reduce((suma, pago) => suma + pago.monto, 0);
+    return { tarjetaId: String(tarjeta._id), ...proyeccion, pagado, diferencia: pagado - proyeccion.total };
+  }
+
+  /** Los pagos de una tarjeta (transacciones `PAGO_TARJETA`), el más reciente primero; con `mes`, solo los de ese mes. */
+  pagosDe(tarjeta: TarjetaCreditoDocument, mes?: string) {
+    return this.transacciones
+      .find({
+        usuarioId: tarjeta.usuarioId,
+        tarjetaId: tarjeta._id,
+        clasificacionFlujo: ClasificacionFlujo.PAGO_TARJETA,
+        ...(mes ? { fecha: rangoDelMes(mes) } : {}),
+      })
+      .sort({ fecha: -1, createdAt: -1, _id: -1 });
   }
 
   // -------------------------------------------------------------------------------------------- cargos fijos

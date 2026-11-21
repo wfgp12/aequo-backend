@@ -81,7 +81,7 @@ Devuelve una tarjeta propia por su id. **Requiere sesión:** header \`Authorizat
 Calcula lo que el usuario debe pagar por una tarjeta propia (RF-30, RF-31, CU-17): el **total estimado del mes de referencia**, el **saldo pendiente** después de pagarlo y la **proyección** de los meses siguientes. **Requiere sesión:** header \`Authorization: Bearer <accessToken>\`.
 
 **Qué trae la respuesta**
-- El nivel superior es el **mes de referencia** (\`mes\`, \`cuotas\`, \`cargosFijos\`, \`total\`, \`saldoPendiente\`) con el \`tarjetaId\`. \`proyeccion\` trae los meses **siguientes**, cada uno con las mismas cinco cifras. Los montos llegan **sin redondear** (RNF-11): el cliente redondea al mostrarlos.
+- El nivel superior es el **mes de referencia** (\`mes\`, \`cuotas\`, \`cargosFijos\`, \`total\`, \`saldoPendiente\`) con el \`tarjetaId\` y, desde RF-32, \`pagado\` y \`diferencia\`. \`proyeccion\` trae los meses **siguientes**, cada uno con las mismas cinco cifras. Los montos llegan **sin redondear** (RNF-11): el cliente redondea al mostrarlos.
 - \`total\` = \`cuotas\` + \`cargosFijos\`. \`cuotas\` es la suma de las cuotas vigentes de todas las compras y avances de la tarjeta; \`cargosFijos\`, la suma de sus cargos fijos activos.
 
 **Reglas a tener en cuenta**
@@ -91,7 +91,7 @@ Calcula lo que el usuario debe pagar por una tarjeta propia (RF-30, RF-31, CU-17
 - **Cargos fijos:** los activos se repiten igual en **cada** mes proyectado, pero no alargan la proyección. El cargo no guarda fechas ni historial: un cargo activo hoy se aplica también a meses pasados.
 - **\`proyeccion\`:** empieza en el mes siguiente al de referencia, es **contigua** (un mes sin cuotas aparece con solo los cargos fijos) y termina en el \`mesUltimoPago\` más lejano. Es \`[]\` si no queda ninguna cuota posterior. No hay tope ni paginación.
 - **Tarjeta vacía:** sin compras ni cargos activos todo vale 0 y \`proyeccion\` es \`[]\`; no es un error.
-- **No considera pagos de la tarjeta:** el total estimado y el saldo salen solo de compras, avances y cargos (la comparación con lo pagado llega con RF-32).
+- **Lo pagado (RF-32):** \`pagado\` y \`diferencia\` se agregan **solo en el nivel superior** (las filas de \`proyeccion\` no los traen). \`pagado\` es la suma de los pagos de la tarjeta (\`POST /tarjetas/:tarjetaId/pagos\`) cuya fecha cae en el mes de referencia (0 si no hay) y \`diferencia = pagado − total\`: negativa falta por pagar, positiva se pagó de más. Son la misma comparación que devuelve el registro del pago. \`cuotas\`, \`cargosFijos\`, \`total\` y \`saldoPendiente\` siguen saliendo solo de compras, avances y cargos: los pagos no los cambian.
 - **Query:** \`mes\` es opcional, \`YYYY-MM\` y de cualquier año o mes; sin él se usa el mes actual según el header \`X-Zona-Horaria\` (UTC si no se envía). \`mes\` repetido o cualquier otro parámetro responde \`400\`.
 - Es una lectura sin efectos: no guarda nada, no usa caché y no lleva \`Idempotency-Key\`.
 - **Orden de las comprobaciones:** sesión (\`401\`), formato de \`tarjetaId\`, de \`mes\` y de \`X-Zona-Horaria\` (\`400\`) y, por último, la tarjeta (\`404\`, igual para una ajena o inexistente, nunca \`403\`).
@@ -179,7 +179,7 @@ Elimina una tarjeta propia. **Requiere sesión:** header \`Authorization: Bearer
 **Reglas a tener en cuenta**
 - **Borrado en cascada:** sus cargos fijos (activos e inactivos) se eliminan con ella; los de otras tarjetas no se tocan.
 - Una tarjeta con **compras o avances** no se elimina: responde \`409\` con \`No se puede eliminar una tarjeta que ya tiene compras registradas\` y no se borra nada (ni los cargos). Primero hay que eliminar sus compras y avances. Esta comprobación va antes que la de pagos, porque un avance tiene una transacción con el \`tarjetaId\` de la tarjeta.
-- Una tarjeta con **pagos registrados** (transacciones con su \`tarjetaId\`) tampoco se elimina: responde \`409\` y no se borra nada, ni los cargos. Para eliminarla primero hay que eliminar esos pagos.
+- Una tarjeta con **pagos registrados** (transacciones con su \`tarjetaId\`) tampoco se elimina: responde \`409\` y no se borra nada, ni los cargos. Para eliminarla primero hay que eliminar esos pagos, uno por uno, con \`DELETE /tarjetas/:tarjetaId/pagos/:id\`.
 - Si el id no existe o es de otro usuario responde \`404\` con el mismo mensaje (nunca \`409\`). Repetir la petición cuando ya se eliminó responde \`404\`.
 - Tras eliminarla, el usuario puede volver a usar su nombre.
 `.trim(),
