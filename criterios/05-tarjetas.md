@@ -3318,3 +3318,297 @@ La hoja no está disponible; el único valor verificado contra ella es $1.254.70
 4. **Decimales y redondeo del pago (D2).** 2 decimales para el valor pagado; el estimado llega sin redondear (la diferencia de pagar $346.270 contra el estimado de CA-RF32-06 es `−0.050165`). Si la hoja redondea el estimado al peso antes de comparar, la diferencia sería 0 en ese caso.
 5. **Método de pago por defecto (D2).** `TRANSFERENCIA`: sin fuente; si el frontend prefiere pedirlo, pasa a obligatorio y solo cambia CA-RF32-17.
 6. **Cargos fijos en meses distintos del actual (D3 de 5.3.1).** El `estimado` de un mes pasado o futuro usa los cargos activos de hoy (no hay historial): lo hereda este paquete.
+
+---
+
+## Paquete 5.3.6 (código provisional) — Detalle por compra en la proyección de la tarjeta (RF-30, RF-31)
+
+Estado: Aprobado por el desarrollador el 2026-11-20 (los valores de la hoja del promotor siguen por confirmar). Decisiones D1 a D8 aprobadas tal como están (D1 = A, solo nivel superior).
+
+### Alcance
+
+Entra **un campo nuevo, `detalle`, en el nivel superior** de `GET /tarjetas/:tarjetaId/proyeccion`: la lista de las compras y avances que tienen cuota **vigente en el mes de referencia** (`mes`), con el número de cuota que les corresponde ese mes («cuota 2/6») y el valor de esa cuota. Lo pidió el frontend para su pantalla «Cuotas pendientes», sin calcular nada en el cliente (RNF-11). Es un cambio **aditivo**: ningún campo existente cambia de valor ni de significado. Las filas de `proyeccion` (meses siguientes) **no** llevan `detalle` (D1, recomendado, a petición del frontend).
+
+**No** entran: un detalle de los cargos fijos (D7; siguen siendo solo la suma `cargosFijos`); la categoría, la fecha de compra, el valor original, la tasa ni el mes del último pago de cada compra (D2; para eso están `GET …/compras` y `GET …/compras/:id`); el detalle de los meses siguientes dentro de la proyección (D1; el cliente consulta `?mes=<ese mes>`); paginación ni filtros del detalle; cambiar la forma de pagar, el saldo o la proyección.
+
+### Fuentes
+
+- **RF-30 y RF-31 (Especificación de Requisitos):** el total del mes está «compuesto por las cuotas vigentes» y la proyección llega «hasta la última cuota registrada». Ninguno de los dos pide un desglose por compra: el `detalle` **no tiene respaldo en un RF**; nace de la petición del frontend (pantalla «Cuotas pendientes») y de la aprobación del desarrollador de este paquete aparte. Por eso va como decisión (D1 a D8).
+- **5.3.1, D6 (aprobada):** recomendó «sin `detalle`» porque `GET …/compras` ya lista cada compra con su `cuota` y su `mesUltimoPago`. Este paquete **cambia esa decisión**: el cliente tendría que deducir el número de cuota de cada compra comparando fechas y sumar, y RNF-11 pide que el cálculo viva en el backend. Se deja constancia para que el desarrollador la apruebe expresamente (D8).
+- **Criterios ya aprobados que se reutilizan:** 5.3.1 (vigencia `primerPago ≤ mes ≤ mesUltimoPago`, CA-RF30-10 a 14; cuota con la tasa y la bandera de cada compra, CA-RF30-03 a 06; mes por defecto y zona, CA-RF30-19 a 21; errores y acceso, CA-RF30-22 a 30; saldo y proyección, CA-RF31-01 a 16), 5.2.3 (compras y avances: descripción recortada, hasta 200 caracteres, la del avance por defecto `Avance en efectivo`; el listado de compras ordena `fecha` descendente y luego creación descendente, CA-RF26-58) y 5.3.2 (`pagado` y `diferencia`).
+- **Código ya en `develop`:** `calcularCuota` y `calcularMesUltimoPago` (`cuota-credito.ts`); `calcularProyeccion` (`proyeccion-tarjeta.ts`, **no se modifica**); `ProyeccionRespuestaDto`; el esquema `CompraCredito` (`tipo` `COMPRA` | `AVANCE`).
+- **Contratos:** `../coordinacion/contratos/proyeccion.md` y `pagos.md` (el contrato de la proyección pasa de 9 a 10 claves en el nivel superior; lo actualiza el arquitecto al aprobarse).
+
+### Valores de referencia
+
+Son los de 5.3.1 («Valores de referencia y cómo se obtuvieron» y `test/tarjetas/escenario-proyeccion.ts`): A = $1.254.700 a 12 cuotas `119802.1331718775` (la de la hoja del promotor, `119802,13`), B = avance $500.000 a 6 cuotas `89741.08506207`, C = $80.000 a 1 cuota `81726.83193074`, D = $240.000 a 3 cuotas `83478.2471679`, E = $100.000 a 2 cuotas `51624.66686647`, F = como A con tasa 0,31 `120662.17031426`, G = $120.000 a 12 cuotas con tasa 0 `10000`; $80.000 a 2 cuotas `41299.73349318`. **No hay valores nuevos**: `cuota` del detalle es la cuota que ya calcula la proyección, y `numeroCuota` es el número de meses entre el primer pago y el mes consultado, más uno (aritmética de meses, sin fuente externa). Tolerancia: la cuota de la hoja con `toBeCloseTo(119802.13, 2)`; las demás con `toBeCloseTo(x, 6)`. Lo que queda por confirmar con la hoja está en el apartado final.
+
+### Datos de las pruebas
+
+Los de 5.3.1 («Datos de las pruebas»): «Visa» (0,2921), «Débito» (con la bandera), «Cero» (tasa 0), el usuario B, las compras A a G y los cargos de «Visa» ($55.000 activos). **Escenario base** = «Visa» con A, B (avance) y C, todas con `fecha` 2026-11-10 y `primerPago` 2026-12, creadas en ese orden (A, B, C), y los tres cargos. En la siembra del arnés la descripción de A y C es `Compra` y la de B `Avance en efectivo`. Cuando se dice «por la API», la compra se crea con `POST …/compras` o `POST …/avances`.
+
+### Contrato HTTP (propuesto) (lo consumirá el frontend en su pantalla «Cuotas pendientes»)
+
+`GET /tarjetas/:tarjetaId/proyeccion?mes=2026-12`, igual que antes. El nivel superior suma una clave:
+
+```json
+{
+  "tarjetaId": "665f1c2a9b1e4a0012a3b4c5",
+  "mes": "2026-12",
+  "cuotas": 291270.05016469,
+  "cargosFijos": 55000,
+  "total": 346270.05016469,
+  "saldoPendiente": 1766528.890201,
+  "pagado": 0,
+  "diferencia": -346270.05016469,
+  "detalle": [
+    { "compraId": "665f1c2a9b1e4a0012a3b4d1", "descripcion": "Compra", "tipo": "COMPRA", "numeroCuota": 1, "totalCuotas": 1, "cuota": 81726.83193074 },
+    { "compraId": "665f1c2a9b1e4a0012a3b4d2", "descripcion": "Avance en efectivo", "tipo": "AVANCE", "numeroCuota": 1, "totalCuotas": 6, "cuota": 89741.08506207 },
+    { "compraId": "665f1c2a9b1e4a0012a3b4d3", "descripcion": "Compra", "tipo": "COMPRA", "numeroCuota": 1, "totalCuotas": 12, "cuota": 119802.1331718775 }
+  ],
+  "proyeccion": [ { "mes": "2027-01", "cuotas": 209543.21823395, "cargosFijos": 55000, "total": 264543.21823395, "saldoPendiente": 1556985.671967 } ]
+}
+```
+
+`compraId` es el `id` de la compra o del avance (el mismo que devuelven `POST …/compras`, `POST …/avances` y los listados), no el de la transacción del avance. `tipo` es `COMPRA` o `AVANCE`. `numeroCuota` es la cuota de **ese mes** (1 a `totalCuotas`); `totalCuotas` es el número de cuotas de la compra; `cuota` es el valor de esa cuota, **sin redondear**, con la tasa y la bandera `cuotaUnicaSinInteres` **de esa compra**. Las filas de `proyeccion` conservan sus cinco claves.
+
+### Decisiones propuestas (el desarrollador aprueba cada una)
+
+> Decisión D1 — **dónde va el `detalle`.** Opciones: (A) solo en el nivel superior (el mes de referencia); para ver otro mes el cliente consulta `?mes=<ese mes>`; (B) además dentro de cada fila de `proyeccion`, con la misma forma; (C) una ruta aparte, `GET …/proyeccion/detalle?mes`, sin tocar la respuesta actual. **Recomendado: A.** Razones: es lo que dice necesitar el frontend (su pantalla muestra el mes de referencia) y B haría crecer la respuesta hasta unos 60 meses por el número de compras sin uso; con A las filas de `proyeccion` no cambian (cinco claves) y de los criterios aprobados solo cambian los de claves exactas del nivel superior. C no toca ningún criterio aprobado pero obliga a dos llamadas y a una ruta más que documentar. Con B, el criterio CA-RF31-18 pasa a exigir las seis claves en las filas y CA-RF32-33 («cada fila conserva exactamente sus cinco claves») y la comprobación de claves de las filas en CA-RF30-18 también cambian; la suma de CA-RF31-36 se verifica por fila.
+>
+> Decisión D2 — **forma del elemento.** Opciones: (A) `{ compraId, descripcion, tipo, numeroCuota, totalCuotas, cuota }`, y nada más; (B) además `categoriaId`, `fecha`, `valor`, `tasaEAAplicada`, `mesUltimoPago`. **Recomendado: A.** Es la forma que el frontend confirmó y no necesita lo demás; lo demás ya está en `GET …/compras`. Nombre `numeroCuota` (la cuota de ese mes) y `totalCuotas`. `compraId` es el id de la compra (también para un avance), de modo que el cliente pueda abrir `GET …/compras/:id`.
+>
+> Decisión D3 — **qué compras entran.** Opciones: (A) solo las que tienen cuota vigente en el mes de referencia (`primerPago ≤ mes ≤ mesUltimoPago`, extremos incluidos, comparando meses; la misma regla de CA-RF30-10 a 13); (B) también las que aún no empiezan, con `numeroCuota` 0. **Recomendado: A.** Es lo que pide el frontend, hace que la suma del `detalle` sea exactamente `cuotas` (CA-RF31-36) y las compras futuras ya están en `saldoPendiente`. Una compra con `primerPago` posterior no aparece; una terminada tampoco.
+>
+> Decisión D4 — **orden.** Opciones: (A) el mismo del listado de compras: `fecha` de la compra descendente, luego fecha de creación descendente y, por último, `id` descendente; (B) la cuota más alta primero; (C) por descripción. **Recomendado: A.** Es un orden estable, ya conocido por el cliente y pedido por el frontend («de la más reciente a la más antigua»); B reordena cuando cambia el mes y C no tiene fuente.
+>
+> Decisión D5 — **dónde se calcula.** Opciones: (A) una función pura nueva `calcularDetalleCuotas({ mes, compras })` en `src/tarjetas/detalle-cuotas.ts`, que reutiliza `calcularCuota` y `calcularMesUltimoPago`, con pruebas unitarias y por HTTP (como D7 de 5.3.1); `calcularProyeccion` y sus pruebas no cambian; (B) solo pruebas por HTTP, sin nombres de código; (C) agregar el `detalle` al resultado de `calcularProyeccion`. **Recomendado: A.** Permite medir con Stryker la lógica nueva (vigencia, número de cuota, orden) sin montar la aplicación y deja intactas las pruebas actuales de `calcularProyeccion`, que pasarían compras sin `id` ni `descripcion`. Con B habría que probar toda la matriz por HTTP; con C cambia el contrato de una función ya aprobada. Los criterios marcan su capa: **[función]**, **[HTTP]** o **[función + HTTP]**.
+>
+> Decisión D6 — **descripción y tipo.** Recomendado: `descripcion` es la de la compra tal como está guardada (recortada, hasta 200 caracteres, sin acortar; la de un avance sin descripción es `Avance en efectivo`) y nunca viene vacía; `tipo` es el de la compra (`COMPRA` o `AVANCE`). Sin fuente propia: se reutiliza lo aprobado en 5.2.3. Alternativa: acortar la descripción a un tope de presentación (lo decide el cliente, no el backend).
+>
+> Decisión D7 — **los cargos fijos no son elementos del `detalle`.** Opciones: (A) no aparecen: `cargosFijos` sigue siendo solo la suma; (B) aparecen como elementos de otro `tipo` (`CARGO`) sin cuota. **Recomendado: A.** El frontend no lo pide, un cargo no tiene número de cuota y mezclarlos cambiaría el significado de `tipo` y de `cuotas`; el RF-29 ya tiene su lista (`GET …/cargos`).
+>
+> Decisión D8 — **compatibilidad con lo ya aprobado.** Recomendado: cambio aditivo; las claves del nivel superior pasan de 9 a 10 (`detalle`). **Modifica criterios y pruebas ya aprobados** (ver «Criterios aprobados que cambian») y reemplaza la recomendación «sin `detalle`» de la D6 de 5.3.1; requiere la aprobación expresa del desarrollador. Alternativa: C de D1 (ruta aparte), que no toca ninguna prueba aprobada.
+
+---
+
+### RF-31 — Detalle por compra de las cuotas del mes
+
+Salvo que se diga otra cosa, «consulta» es `GET /tarjetas/<id>/proyeccion?mes=…` para los criterios [HTTP] y `calcularDetalleCuotas({ mes, compras })` para los [función]; los datos son los de «Datos de las pruebas».
+
+#### La forma
+
+#### CA-RF31-17 — La forma de cada elemento del detalle [HTTP]
+
+- **Dado** el escenario base
+- **Cuando** consulta `mes=2026-12`
+- **Entonces** `detalle` es un arreglo y cada elemento trae **exactamente** las claves `compraId`, `descripcion`, `tipo`, `numeroCuota`, `totalCuotas` y `cuota`; `compraId`, `descripcion` y `tipo` son texto, los otros tres son números; `compraId` es el `id` de la compra (o del avance) en «Visa»; sin `categoriaId`, `fecha`, `valor`, `tasaEAAplicada`, `mesUltimoPago`, `usuarioId`, `id`, `_id` ni `__v`
+
+#### CA-RF31-18 — El nivel superior pasa a diez claves y las filas de la proyección no cambian (modifica CA-RF30-18 y CA-RF32-34) [HTTP]
+
+- **Dado** el escenario base
+- **Cuando** consulta `mes=2026-12`
+- **Entonces** el nivel superior trae **exactamente** las claves `tarjetaId`, `mes`, `cuotas`, `cargosFijos`, `total`, `saldoPendiente`, `pagado`, `diferencia`, `detalle` y `proyeccion` (antes, nueve, sin `detalle`); cada elemento de `proyeccion` conserva **exactamente** sus cinco claves (`mes`, `cuotas`, `cargosFijos`, `total`, `saldoPendiente`), sin `detalle`
+
+> Modifica criterios ya aprobados: CA-RF30-18 (5.3.1) y CA-RF32-34 (5.3.2) dicen «exactamente las claves…» del nivel superior; sus pruebas comparan hoy nueve claves y deben pasar a diez. **Requiere la aprobación expresa del desarrollador.** Con la opción B de D1 las filas también pasarían a seis claves (afecta además CA-RF32-33).
+
+#### El caso de referencia y la precisión
+
+#### CA-RF31-19 — La compra de referencia de la hoja del promotor: cuota 1 de 12 [función + HTTP]
+
+- **Dado** «Visa» (0,2921) con solo la compra A ($1.254.700 a 12 cuotas, `primerPago` 2026-12), sin cargos
+- **Cuando** consulta `mes=2026-12`
+- **Entonces** `detalle` tiene **un** elemento: `tipo` `COMPRA`, `numeroCuota` 1, `totalCuotas` 12 y `cuota` 119802,13 (`toBeCloseTo(119802.13, 2)`); su `cuota` es igual a `cuotas` del mes
+
+#### CA-RF31-20 — La cuota del detalle llega con precisión completa [función + HTTP]
+
+- **Dado** la tarjeta y la consulta de CA-RF31-19
+- **Cuando** consulta `mes=2026-12`
+- **Entonces** `cuota` está dentro de `119802.1331718775` con 6 decimales (`toBeCloseTo(119802.1331718775, 6)`) y **no** es `119802.13` ni `119802`: el redondeo lo hace el cliente (RNF-11)
+
+#### Qué compras aparecen y con qué cuota
+
+#### CA-RF31-21 — El escenario base: una cuota por compra o avance, en el mes de referencia [función + HTTP]
+
+- **Dado** el escenario base (A, B y C creadas en ese orden, todas con la misma `fecha`)
+- **Cuando** consulta `mes=2026-12`
+- **Entonces** `detalle` trae **tres** elementos, en este orden: C (`COMPRA`, 1/1, `81726.83193074`), B (`AVANCE`, 1/6, `89741.08506207`, descripción `Avance en efectivo`) y A (`COMPRA`, 1/12, `119802.1331718775`); los tres `compraId` son los de esas compras y son distintos; las cuotas se verifican con 6 decimales; el avance cuenta igual que una compra (RF-28)
+
+#### CA-RF31-22 — El número de cuota avanza un mes a la vez, cruza el año y llega a la última [función + HTTP]
+
+- **Dado** el escenario base
+- **Cuando** consulta cada mes de `2026-12` a `2027-11`
+- **Entonces** los elementos del `detalle` (orden de CA-RF31-33) son: `2026-12`: C 1/1, B 1/6, A 1/12; `2027-01`: B 2/6, A 2/12 (cruce de año); `2027-02`: B 3/6, A 3/12; `2027-03`: B 4/6, A 4/12; `2027-04`: B 5/6, A 5/12; `2027-05`: B 6/6 (su **último** mes todavía aparece), A 6/12; `2027-06` a `2027-11`: solo A, con `numeroCuota` 7, 8, 9, 10, 11 y 12 (el mes del último pago, 12/12); la `cuota` de cada compra es la misma en todos sus meses (`totalCuotas` no cambia)
+
+#### CA-RF31-23 — Antes del primer pago y después del último, no hay elementos [función + HTTP]
+
+- **Dado** «Visa» con solo la compra A (`primerPago` 2026-12, último pago 2027-11) y los cargos activos de $55.000
+- **Cuando** consulta `mes=2026-11` y `mes=2027-12`
+- **Entonces** en las dos `detalle` es `[]` (arreglo vacío, no `null` ni ausente), `cuotas` es 0 y `cargosFijos` 55000; el `saldoPendiente` de `2026-11` sigue siendo el de CA-RF31-06 (`1437625.598063`)
+
+#### CA-RF31-24 — Una compra futura no aparece todavía y una terminada ya no [función]
+
+- **Dado** «Visa» con la compra D ($240.000 a 3 cuotas, `primerPago` 2027-02), la compra E ($100.000 a 2 cuotas, `primerPago` 2026-09) y la compra A
+- **Cuando** consulta los meses `2026-09`, `2026-10`, `2026-11`, `2026-12`, `2027-02` y `2027-04`
+- **Entonces** en `2026-09` solo E (1/2, `51624.66686647`); en `2026-10` solo E (2/2); en `2026-11` ninguno; en `2026-12` solo A (1/12; D todavía no empieza y E ya terminó); en `2027-02`, D (1/3, `83478.2471679`) y A (3/12); en `2027-04`, D (3/3) y A (5/12)
+
+#### CA-RF31-25 — Cuenta el mes del primer pago, no la fecha de la compra [función + HTTP]
+
+- **Dado** «Visa» con una compra H1 de $1.254.700 a 12 cuotas hecha el `2026-12-31` con `primerPago` `2027-01`, y otra H2 igual hecha el `2026-06-15` con `primerPago` `2026-12`
+- **Cuando** consulta `mes=2026-12` y `mes=2027-01`
+- **Entonces** en `2026-12` el detalle trae solo H2 (1/12), aunque se hizo seis meses antes; en `2027-01` trae H1 (1/12) y H2 (2/12), en ese orden (H1 tiene la `fecha` más reciente)
+
+#### CA-RF31-26 — Una sola cuota y la bandera `cuotaUnicaSinInteres` [función + HTTP]
+
+- **Dado** «Débito» (0,2921, con la bandera) con una compra de $80.000 a 1 cuota y otra de $80.000 a 2 cuotas, ambas con `primerPago` 2026-12; y «Visa» (sin la bandera) con una compra de $80.000 a 1 cuota con `primerPago` 2026-12
+- **Cuando** consulta `mes=2026-12` de cada tarjeta, y de «Débito» otra vez después de cambiar su bandera a `false` con `PATCH /tarjetas/<débito>`
+- **Entonces** en «Débito» la compra a 1 cuota es 1/1 con `cuota` exactamente `80000` (sin interés) y la de 2 cuotas es 1/2 con `41299.73349318` (la bandera solo exime la cuota única); en «Visa» la de 1 cuota es 1/1 con `81726.83193074` (un mes de interés); tras cambiar la bandera, las cuotas de «Débito» no cambian (cada compra conserva la suya)
+
+#### CA-RF31-27 — Con tasa cero, la cuota es el valor entre las cuotas [función]
+
+- **Dado** «Cero» (tasa 0) con la compra G ($120.000 a 12 cuotas, `primerPago` 2026-12)
+- **Cuando** consulta `mes=2026-12` y `mes=2027-11`
+- **Entonces** el elemento es 1/12 y 12/12 y su `cuota` es exactamente `10000` en ambos
+
+#### CA-RF31-28 — Cada compra muestra su propia tasa: el cambio de tasa de la tarjeta no recalcula las anteriores [función + HTTP]
+
+- **Dado** «Visa» con la compra A (0,2921) registrada por la API; luego el usuario cambia la tasa de la tarjeta a 0,31 con `PATCH /tarjetas/<visa>` y registra la compra F ($1.254.700 a 12 cuotas, `primerPago` 2026-12), que copia 0,31 (por la función: A con `tasaEAAplicada` 0,2921 y F con 0,31)
+- **Cuando** consulta `mes=2026-12`, y otra vez después de cambiar la tasa de la tarjeta a 0,40
+- **Entonces** el detalle trae F (`120662.17031426`) y A (`119802.1331718775`), cada una con su cuota (6 decimales), las dos veces; su suma es `cuotas` (`240464.30348614`)
+
+#### CA-RF31-29 — Dos compras idénticas son dos elementos [función + HTTP]
+
+- **Dado** «Visa» con dos compras iguales (mismo valor, cuotas, `fecha`, `primerPago` y descripción) creadas por la API con claves de idempotencia distintas
+- **Cuando** consulta `mes=2026-12`
+- **Entonces** `detalle` trae **dos** elementos con `compraId` distintos y la misma `cuota`, sin agrupar ni descartar (no se deduplica por contenido); la suma de sus cuotas es `cuotas`
+
+#### CA-RF31-30 — Los cargos fijos no aparecen en el detalle [función + HTTP]
+
+- **Dado** el escenario base (con los cargos «Netflix», «Seguro» y «Gimnasio»); y «Visa» solo con los cargos activos, sin compras
+- **Cuando** consulta `mes=2026-12`
+- **Entonces** en el escenario base el `detalle` tiene tres elementos (C, B, A) y ninguno es un cargo (ninguna `descripcion` es «Netflix», «Seguro» o «Gimnasio»), con `cargosFijos` 55000; en la tarjeta solo con cargos, `detalle` es `[]` y `cargosFijos` 55000
+
+#### CA-RF31-31 — Una tarjeta sin compras tiene el detalle vacío [función + HTTP]
+
+- **Dado** una tarjeta recién creada, sin compras ni cargos
+- **Cuando** consulta `mes=2026-12`
+- **Entonces** responde `200` con `detalle` `[]` (no `null` ni ausente) y el resto en cero (`cuotas` 0, `total` 0, `saldoPendiente` 0, `proyeccion` `[]`)
+
+#### CA-RF31-32 — Solo cuentan las compras de esa tarjeta y de ese usuario [HTTP]
+
+- **Dado** el usuario A con «Visa» (compra A) y «Débito» (una compra de $80.000 a 1 cuota con `primerPago` 2026-12), y el usuario B con una tarjeta también llamada «Visa» con la misma compra A
+- **Cuando** A y B consultan `mes=2026-12` de su propia «Visa»
+- **Entonces** el detalle de A trae un solo elemento (la compra A de A, 1/12) y el de B uno solo (la de B), con `compraId` distintos; ninguno incluye la compra de «Débito» ni la del otro usuario (el usuario sale del JWT)
+
+#### El orden
+
+#### CA-RF31-33 — Las más recientes primero [función + HTTP]
+
+- **Dado** (a) el escenario base (misma `fecha`, creadas en el orden A, B, C) y (b) «Visa» con A de `fecha` 2026-11-10 (creada primero), el avance B de `fecha` 2026-11-25 (creado segundo) y C de `fecha` 2026-10-01 (creada última), todas con `primerPago` 2026-12
+- **Cuando** consulta `mes=2026-12`
+- **Entonces** en (a) el orden es C, B, A (a igual `fecha`, la creada después primero); en (b) es B, A, C (la `fecha` más reciente primero, aunque se creara antes que otra); repetir la consulta da el mismo orden, y es el mismo orden que `GET …/compras` (CA-RF26-58)
+
+#### CA-RF31-34 — Con la misma fecha y la misma creación, el `id` mayor primero [función]
+
+- **Dado** dos compras vigentes en el mes con la misma `fecha` y el mismo `createdAt` y los `id` `"665f1c2a9b1e4a0012a3b4d1"` y `"665f1c2a9b1e4a0012a3b4d2"`, pasadas a la función en los dos órdenes posibles
+- **Cuando** llama a `calcularDetalleCuotas`
+- **Entonces** el primer elemento es el de `id` `…4d2` en los dos casos (el resultado no depende del orden de entrada)
+
+#### CA-RF31-35 — La descripción y el tipo son los de la compra [HTTP]
+
+- **Dado** «Visa» con una compra creada por la API con `descripcion` `"  Televisor 55  "`, otra con una descripción de 200 caracteres, un avance sin `descripcion` y un avance con `descripcion` `"Para el arriendo"`, todos con `primerPago` 2026-12
+- **Cuando** consulta `mes=2026-12`
+- **Entonces** las descripciones son `"Televisor 55"` (recortada), los 200 caracteres completos (sin acortar), `"Avance en efectivo"` y `"Para el arriendo"`; los `tipo` son `COMPRA`, `COMPRA`, `AVANCE` y `AVANCE`; ninguna descripción llega vacía
+
+#### Coherencia con los totales
+
+#### CA-RF31-36 — La suma de las cuotas del detalle es `cuotas`, mes a mes [función + HTTP]
+
+- **Dado** el escenario base
+- **Cuando** consulta cada mes de `2026-12` a `2027-11`
+- **Entonces** la suma de las `cuota` del `detalle` es igual a `cuotas` de ese mes de la tabla del escenario base (6 decimales) y el número de elementos es 3 en `2026-12`, 2 de `2027-01` a `2027-05` y 1 de `2027-06` a `2027-11`; así, el detalle de `?mes=2027-01` es el desglose de la primera fila de `proyeccion` de `?mes=2026-12` (misma `cuotas`)
+
+#### CA-RF31-37 — Un mes muy pasado o muy futuro es válido y no tiene detalle [HTTP]
+
+- **Dado** el escenario base
+- **Cuando** consulta `mes=2020-01` y `mes=2099-12`
+- **Entonces** las dos responden `200` con `detalle` `[]`; los demás valores son los de CA-RF30-23
+
+#### CA-RF31-38 — El detalle es el del mes consultado, o el del mes actual si falta `mes` [HTTP]
+
+- **Dado** el escenario base y el reloj en `2026-12-15T12:00:00Z`; y, aparte, el reloj en `2027-01-01T03:00:00Z` (en Bogotá todavía es el 31 de diciembre)
+- **Cuando** consulta `mes=2027-01`; y sin `mes` y sin header; y sin `mes` con `X-Zona-Horaria: America/Bogota` en el segundo instante
+- **Entonces** el primero trae el detalle de `2027-01` (B 2/6 y A 2/12); el segundo, el de `2026-12` (tres elementos); el tercero, el de `2026-12` (mismo borde de mes que CA-RF30-19 y 20)
+
+#### CA-RF31-39 — Agregar el detalle no cambia ningún otro valor [HTTP]
+
+- **Dado** el escenario base
+- **Cuando** consulta `mes=2026-12`
+- **Entonces** `cuotas` `291270.05016469`, `cargosFijos` `55000`, `total` `346270.05016469`, `saldoPendiente` `1766528.890201`, `pagado` `0`, `diferencia` `−346270.05016469` y los 11 elementos de `proyeccion` son los de la tabla del escenario base (6 decimales), como antes de este paquete
+
+#### Cambios en las compras
+
+#### CA-RF31-40 — Editar una compra o un avance se refleja en la siguiente consulta [HTTP]
+
+- **Dado** el escenario base, con la consulta de `2026-12` ya hecha
+- **Cuando** el usuario cambia B a 3 cuotas con `PATCH …/compras/<id>`, cambia la descripción de A a `"Televisor 55 pulgadas"` y mueve el `primerPago` de C a `2027-01`, y consulta `mes=2026-12` y `mes=2027-01`
+- **Entonces** en `2026-12` el detalle trae B (`AVANCE`, 1/3, `173913.01493311`) y A (1/12, descripción nueva), sin C; en `2027-01` trae C (1/1), B (2/3) y A (2/12); no hay caché
+
+#### CA-RF31-41 — Eliminar una compra o un avance lo quita del detalle [HTTP]
+
+- **Dado** el escenario base
+- **Cuando** el usuario elimina C con `DELETE …/compras/<id>` y el avance B, y consulta `mes=2026-12`
+- **Entonces** `detalle` trae solo A (1/12) y `cuotas` es la de A (`119802.1331718775`)
+
+#### CA-RF31-42 — Los pagos y el dinero recibido del avance no cambian el detalle [HTTP]
+
+- **Dado** el escenario base con el avance B creado por la API (con su transacción `DINERO_RECIBIDO`), una transacción `PAGO_TARJETA` de $300.000 de «Visa» en 2026-12 y un egreso ordinario
+- **Cuando** consulta `mes=2026-12`
+- **Entonces** `detalle` es idéntico al de CA-RF31-21 (tres elementos: la transacción del avance no es un elemento más y el pago no lo modifica); `pagado` es 300000 y `diferencia` `−46270.050165`
+
+#### Acceso y errores (sin cambios)
+
+#### CA-RF31-43 — Las reglas de acceso y de error de la ruta siguen igual y no revelan compras ajenas [HTTP]
+
+- **Dado** «Visa» del usuario B con compras vigentes, y un id válido que no existe
+- **Cuando** el usuario A consulta la tarjeta de B (con `mes=2026-12`), el id inexistente, `mes=2026-13` y `/tarjetas/no-es-un-id/proyeccion`, y alguien consulta sin sesión
+- **Entonces** responden `404 Tarjeta no encontrada` (nunca `403`), `404`, `400` (texto que empieza por `mes`), `400` (texto que empieza por `tarjetaId`) y `401`; ninguna respuesta de error trae `detalle` ni datos de las compras de B; la consulta sigue sin guardar nada (CA-RF30-29)
+
+#### La función pura
+
+#### CA-RF31-44 — La función rechaza entradas inválidas y no modifica lo que recibe [función]
+
+- **Dado** una compra con `cuotas` `0`, otra con `valor` `-1`, otra con `primerPago` que no es una fecha válida y una consulta con `mes` `2026-13`, `"2026-1"` y `202612` (número); y una llamada válida con compras en cualquier orden
+- **Cuando** llama a `calcularDetalleCuotas` con cada una
+- **Entonces** las inválidas lanzan `RangeError` con un mensaje que contiene el nombre del campo (`cuotas`, `valor`, `primerPago` y `mes`; el texto completo no se verifica), sin devolver `NaN`; con una entrada válida, `compras` (ni sus objetos) quedan sin modificar y una lista vacía de compras devuelve `[]`
+
+### Documentación Swagger
+
+`src/common/swagger.spec.ts` fallará si `ProyeccionRespuestaDto` o el DTO nuevo del elemento del detalle (el implementador lo nombra) tienen una propiedad sin `description` y `example`: `detalle` (arreglo, con el tipo del elemento) y las seis del elemento (`compraId`, `descripcion`, `tipo`, `numeroCuota`, `totalCuotas`, `cuota`; `tipo` con sus dos valores posibles). La descripción de `GET /tarjetas/:tarjetaId/proyeccion` debe explicar: qué trae `detalle` (una entrada por compra o avance con cuota vigente en el mes de referencia, cada una con su número de cuota y su cuota sin redondear, con su propia tasa y su propia bandera); la regla de vigencia (`primerPago ≤ mes ≤ mesUltimoPago`, extremos incluidos; no aparecen las que aún no empiezan ni las terminadas); que la suma de las `cuota` del `detalle` es `cuotas`; que los cargos fijos no aparecen (son `cargosFijos`); el orden (fecha de la compra descendente, luego creación); que `compraId` es el id de la compra o del avance (el de `GET …/compras/:id`); que las filas de `proyeccion` **no** traen detalle y que para el de otro mes se consulta `?mes=`; y que la tarjeta sin compras vigentes devuelve `[]`. La descripción general de la etiqueta `tarjetas` en `src/common/swagger.ts` debe mencionarlo.
+
+---
+
+## Índice de criterios del paquete 5.3.6
+
+- **RF-31:** CA-RF31-17 a CA-RF31-44 (28 criterios). Forma: 17 y 18 (elemento; nivel superior de diez claves y filas sin cambio); referencia y precisión: 19 y 20; contenido y cuota: 21 a 32 (escenario base, número de cuota mes a mes, antes y después, futuras y terminadas, vigencia por primer pago, cuota única y bandera, tasa cero, tasa de cada compra, compras iguales, cargos fuera, tarjeta vacía, de esa tarjeta y usuario); orden y texto: 33 a 35; coherencia: 36 a 39 (suma igual a `cuotas`, meses extremos, mes y zona, resto sin cambios); cambios en las compras: 40 a 42 (editar, eliminar, pagos y avance); acceso: 43; función: 44.
+- **Capas:** **función** (`calcularDetalleCuotas`): 19 a 31, 33, 34, 36 y 44; **HTTP**: 17 a 23, 25, 26, 28 a 33, 35 a 43.
+
+### Criterios aprobados que cambian
+
+Solo dos, ambos por la clave nueva del nivel superior (9 a 10 claves; D8). Las pruebas afectadas (**el tester las ajusta tras la aprobación**, sin cambiar lo que verifican salvo la lista de claves):
+
+- **CA-RF30-18** (5.3.1), probado en `src/tarjetas/proyeccion-consulta.integration.spec.ts` con la constante `CLAVES_NIVEL_SUPERIOR` (hoy con nueve claves): se agrega `detalle`. Las claves de las filas (`CLAVES_DE_UN_MES`) no cambian.
+- **CA-RF32-34** (5.3.2), probado en `src/tarjetas/pagos-proyeccion.integration.spec.ts` con `CLAVES_NIVEL_SUPERIOR_CON_PAGOS` (en `test/tarjetas/escenario-pagos.ts`): se agrega `detalle`.
+- **CA-RF32-33** (cinco claves en cada fila) y los criterios de `proyeccion` de 5.3.1 **no cambian** con la opción A de D1 (con la B, cambian las claves de las filas en CA-RF30-18, CA-RF32-33 y CA-RF32-34).
+- La decisión D6 de 5.3.1 («sin `detalle`») queda sustituida por D1 a D3 de este paquete.
+
+### Criterios con «Pendiente de decisión»
+
+Ninguno usa la marca: cada regla sin respaldo en un RF o ADR es una decisión de arriba (D1 a D8). Dependen de ellas: D1 (CA-RF31-17, 18, 36, 38), D2 (17, 21), D3 (22 a 25, 36, 37), D4 (33, 34), D5 (las capas, 19 a 34, 36, 44), D6 (35), D7 (30) y D8 (18).
+
+### Valores y reglas por confirmar con la hoja del promotor
+
+La hoja no está disponible; el único valor contrastado es $1.254.700 a 12 cuotas con E.A. 29,21 % → $119.802,13. Este paquete no introduce cálculos financieros nuevos; lo que conviene confirmar:
+
+1. **Qué cuota se muestra (D3).** Que el número de cuota del mes sea «mes consultado − mes del primer pago + 1» (la hoja podría numerar desde otro mes).
+2. **Que la cuota de cada compra en el detalle sea la de la hoja** (con la tasa de esa compra), igual que en 5.3.1 (CA-RF30-03 a 06).

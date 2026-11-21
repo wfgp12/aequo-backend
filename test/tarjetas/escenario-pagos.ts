@@ -63,10 +63,14 @@ export const CLAVES_PROHIBIDAS_DEL_PAGO = [
   'clasificacionFlujo',
 ];
 
-/** Los campos del nivel superior de la proyección con `pagado` y `diferencia` (CA-RF32-34), ordenados. */
+/**
+ * Los campos del nivel superior de la proyección con `pagado` y `diferencia` (CA-RF32-34) y con `detalle`
+ * (CA-RF31-18, paquete 5.3.6: modifica CA-RF32-34, de nueve a diez claves), ordenados.
+ */
 export const CLAVES_NIVEL_SUPERIOR_CON_PAGOS = [
   'cargosFijos',
   'cuotas',
+  'detalle',
   'diferencia',
   'mes',
   'pagado',

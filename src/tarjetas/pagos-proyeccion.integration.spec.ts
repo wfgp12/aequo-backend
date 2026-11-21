@@ -123,7 +123,7 @@ describe('GET /tarjetas/:tarjetaId/proyeccion: lo pagado y la diferencia (integr
     }
   });
 
-  it('CA-RF32-34 la forma del nivel superior de la proyección crece con `pagado` y `diferencia`', async () => {
+  it('CA-RF32-34 la forma del nivel superior de la proyección crece con `pagado` y `diferencia` (y con `detalle`, CA-RF31-18)', async () => {
     const { visa } = await sembrarEscenarioBase(e);
 
     const { status, body } = await e.proyeccion(visa, 'mes=2026-12');
