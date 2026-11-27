@@ -55,11 +55,15 @@ function exigirMismoInteres(deuda: DeudaDocument, { tipoInteres, valorInteres }:
  * Deudas y préstamos recibidos (RF-34 a RF-36). Un préstamo **es** una transacción de ingreso `DINERO_RECIBIDO` con
  * `deudaId` (ADR-014): no es ingreso propio y la deuda no guarda montos. La atomicidad entre la deuda y su transacción
  * es por compensación, como en los avances: si falla la segunda escritura se deshace la primera.
- * ponytail: un corte del proceso entre las dos, o dos peticiones simultáneas sobre la misma deuda (borrar y sumar),
- * puede dejar una deuda sin préstamos o un préstamo sin deuda; cerrarlo pide transacciones de MongoDB.
+ * ponytail: las escrituras sobre una misma deuda van en una fila en memoria, que solo protege con un único proceso; un
+ * corte entre las dos escrituras o varias instancias piden transacciones de MongoDB. Los abonos (6.2.1) deben pasar por
+ * la misma fila.
  */
 @Injectable()
 export class DeudasService {
+  /** Última tarea en la fila de cada deuda (por id). */
+  private readonly filas = new Map<string, Promise<unknown>>();
+
   constructor(
     @InjectModel(Deuda.name) private readonly deudas: Model<Deuda>,
     @InjectModel(Transaccion.name) private readonly transacciones: Model<Transaccion>,
@@ -71,11 +75,25 @@ export class DeudasService {
     const existente = await this.deudas
       .findOne({ usuarioId: usuario, acreedor: dto.acreedor, saldada: false })
       .collation(INTERCALACION_ACREEDOR);
-    if (existente) exigirMismoInteres(existente, dto);
-    const deuda = existente ?? (await this.crearDeuda(usuario, dto));
+    // La deuda nueva no hace fila: dos creaciones simultáneas las frena el índice único (409).
+    if (!existente) return this.guardarPrestamo(await this.crearDeuda(usuario, dto), dto, true);
+    exigirMismoInteres(existente, dto);
+    const registrado = await this.enFila(existente.id, async () =>
+      (await this.deudas.exists({ _id: existente._id })) ? this.guardarPrestamo(existente, dto, false) : null,
+    );
+    // Si la eliminaron mientras esperaba el turno, se empieza de nuevo (fuera de la fila).
+    return registrado ?? this.registrarPrestamo(usuarioId, dto);
+  }
+
+  /** Guarda la transacción del préstamo; si falla y la deuda se acababa de crear, la deshace. */
+  private async guardarPrestamo(
+    deuda: DeudaDocument,
+    dto: RegistrarPrestamoDto,
+    deudaCreada: boolean,
+  ): Promise<PrestamoRegistradoRespuestaDto> {
     try {
       const prestamo = await this.transacciones.create({
-        usuarioId: usuario,
+        usuarioId: deuda.usuarioId,
         tipo: TipoTransaccion.INGRESO,
         monto: dto.monto,
         fecha: aFecha(dto.fecha),
@@ -84,9 +102,9 @@ export class DeudasService {
         clasificacionFlujo: ClasificacionFlujo.DINERO_RECIBIDO,
         deudaId: deuda._id,
       });
-      return { deudaCreada: !existente, deuda: aDeudaRespuesta(deuda), prestamo: aPrestamoRespuesta(prestamo) };
+      return { deudaCreada, deuda: aDeudaRespuesta(deuda), prestamo: aPrestamoRespuesta(prestamo) };
     } catch (error) {
-      if (!existente) await this.deudas.deleteOne({ _id: deuda._id });
+      if (deudaCreada) await this.deudas.deleteOne({ _id: deuda._id });
       throw error;
     }
   }
@@ -112,7 +130,14 @@ export class DeudasService {
   }
 
   /** Deshace un préstamo mal registrado. Si era el único, se va también la deuda, salvo que ya tenga abonos (409). */
-  async eliminarPrestamo(usuarioId: string, deudaId: string, prestamoId: string): Promise<void> {
+  eliminarPrestamo(usuarioId: string, deudaId: string, prestamoId: string): Promise<void> {
+    // La ruta admite el id en mayúsculas: la clave de la fila es la forma canónica.
+    return this.enFila(new Types.ObjectId(deudaId).toString(), () =>
+      this.eliminarEnTurno(usuarioId, deudaId, prestamoId),
+    );
+  }
+
+  private async eliminarEnTurno(usuarioId: string, deudaId: string, prestamoId: string): Promise<void> {
     const usuario = new Types.ObjectId(usuarioId);
     const deuda = await this.deudas.findOne({ _id: new Types.ObjectId(deudaId), usuarioId: usuario });
     if (!deuda) throw new NotFoundException(MENSAJES.deudaNoEncontrada);
@@ -134,6 +159,18 @@ export class DeudasService {
       await this.transacciones.create(prestamo.toObject());
       throw error;
     }
+  }
+
+  /** Ejecuta la tarea cuando terminen las anteriores de esa deuda (fallen o no) y libera la fila al vaciarse. */
+  private enFila<T>(deudaId: string, tarea: () => Promise<T>): Promise<T> {
+    const turno = (this.filas.get(deudaId) ?? Promise.resolve()).then(tarea);
+    const fin: Promise<void> = turno
+      .catch(() => undefined)
+      .then(() => {
+        if (this.filas.get(deudaId) === fin) this.filas.delete(deudaId);
+      });
+    this.filas.set(deudaId, fin);
+    return turno;
   }
 
   private async exigirSinAbonos(deLaDeuda: { usuarioId: Types.ObjectId; deudaId: Types.ObjectId }): Promise<void> {
