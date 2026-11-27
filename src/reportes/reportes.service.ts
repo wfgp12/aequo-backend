@@ -121,7 +121,9 @@ export class ReportesService {
 
     const totales = totalesVacios();
     for (const movimiento of movimientos) sumarMovimiento(totales, movimiento);
-    return { ...periodo, ...totales, balance: balanceDe(totales) };
+    const balance = balanceDe(totales);
+    // Lo que queda en el bolsillo: préstamos y avances no son ingreso propio ni suman al balance, pero se pueden gastar.
+    return { ...periodo, ...totales, balance, dineroDisponible: balance + totales.dineroRecibido };
   }
 
   /**

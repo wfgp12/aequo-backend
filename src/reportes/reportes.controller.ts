@@ -47,6 +47,7 @@ Devuelve los totales de dinero del usuario dueño de la sesión en un periodo (C
 - \`abonosDeuda\`: abonos a deudas.
 - \`dineroRecibido\`: préstamos y avances recibidos. Se informa aparte y **no** suma al balance.
 - \`balance\` = \`ingresos − egresos − pagosTarjeta − abonosDeuda\`: el dinero que entró o salió de verdad. Puede ser negativo.
+- \`dineroDisponible\` = \`balance + dineroRecibido\`: lo que queda contando los préstamos y avances recibidos, que no son ingreso propio. Es solo del periodo consultado.
 
 **Otras reglas**
 - Los totales se calculan al consultar: registrar, editar o eliminar un movimiento se refleja de inmediato.

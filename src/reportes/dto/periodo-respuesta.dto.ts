@@ -58,4 +58,12 @@ export class PeriodoRespuestaDto {
       'Dinero que entró o salió de verdad: `ingresos − egresos − pagosTarjeta − abonosDeuda`. Puede ser negativo. Tiene la precisión completa de la suma: el redondeo al peso lo hace el cliente.',
   })
   balance: number;
+
+  @ApiProperty({
+    type: Number,
+    example: 2100497.87,
+    description:
+      'Dinero disponible del periodo: `balance + dineroRecibido` (préstamos y avances incluidos). No es ingreso propio, no arrastra lo de periodos anteriores y no es el `disponible` de `GET /ahorro/progreso`. Puede ser negativo y llega sin redondear.',
+  })
+  dineroDisponible: number;
 }

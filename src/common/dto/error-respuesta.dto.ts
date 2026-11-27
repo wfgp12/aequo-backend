@@ -210,6 +210,16 @@ export class ErrorCompraNoEncontradaDto extends ErrorNoEncontradoBaseDto {
   message: string;
 }
 
+export class ErrorPrestamoNoEncontradoDto extends ErrorNoEncontradoBaseDto {
+  @ApiProperty({
+    type: String,
+    example: 'Préstamo no encontrado',
+    description:
+      'La transacción no existe, es de otro usuario, es de otra deuda o no es un préstamo (un abono, un avance, un egreso). Si la deuda de la ruta no existe o es de otro usuario, el mensaje es `Deuda no encontrada`.',
+  })
+  message: string;
+}
+
 export class ErrorRecursoNoEncontradoDto {
   @ApiProperty({ type: Number, example: 404, description: 'Código HTTP de la respuesta.' })
   statusCode: number;
