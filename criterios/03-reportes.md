@@ -13,7 +13,8 @@ Los RF y el Documento de Diseño no fijan el endpoint, así que las pruebas se e
 - `GET /reportes/periodo`, protegido con la sesión.
 - Parámetros de consulta, todos opcionales: `mes` (`YYYY-MM`) **o** el par `desde` + `hasta` (`YYYY-MM-DD`, ambos incluidos). Sin ninguno, se usa el mes actual (RF-13).
 - Respuesta 200:
-  `{ desde, hasta, ingresos, egresos, pagosTarjeta, abonosDeuda, dineroRecibido, balance }`
+  `{ desde, hasta, ingresos, egresos, pagosTarjeta, abonosDeuda, dineroRecibido, balance, dineroDisponible }`
+  - `dineroDisponible` = `balance + dineroRecibido` (préstamos y avances incluidos). Agregado por el paquete 6.1.2 (D1, aprobada el 2026-11-27, ver `06-deudas.md`); `balance` no cambia.
   - `desde` y `hasta`: el periodo efectivo, `YYYY-MM-DD`.
   - `ingresos`: suma de las transacciones `INGRESO` con `clasificacionFlujo` `ORDINARIO` (ingreso propio).
   - `egresos`: suma de las transacciones `EGRESO` `ORDINARIO` (gasto propio).
@@ -50,7 +51,9 @@ Los RF y el Documento de Diseño no fijan el endpoint, así que las pruebas se e
 
 - **Dado** un usuario que tiene movimientos en meses anteriores pero ninguno en el mes actual
 - **Cuando** consulta `GET /reportes/periodo` sin parámetros
-- **Entonces** responde 200 con `ingresos`, `egresos`, `pagosTarjeta`, `abonosDeuda`, `dineroRecibido` y `balance` en `0` (CU-07, flujo 3a)
+- **Entonces** responde 200 con `ingresos`, `egresos`, `pagosTarjeta`, `abonosDeuda`, `dineroRecibido`, `balance` y `dineroDisponible` en `0` (CU-07, flujo 3a)
+
+> Modificado por 6.1.2 (D1, 2026-11-27): se agrega `dineroDisponible`.
 
 ---
 
@@ -162,7 +165,9 @@ Todos los casos usan `?mes=2026-10`.
 
 - **Dado** ingresos ordinarios de $2.500.000 y $300.000, y egresos ordinarios de $45.000, $80.000 y $1.254.700, todos en octubre de 2026
 - **Cuando** consulta el reporte
-- **Entonces** `ingresos` es 2.800.000, `egresos` es 1.379.700 y `balance` es 1.420.300; `pagosTarjeta`, `abonosDeuda` y `dineroRecibido` son 0
+- **Entonces** `ingresos` es 2.800.000, `egresos` es 1.379.700, `balance` es 1.420.300 y `dineroDisponible` 1.420.300; `pagosTarjeta`, `abonosDeuda` y `dineroRecibido` son 0
+
+> Modificado por 6.1.2 (D1, 2026-11-27): la respuesta incluye `dineroDisponible`.
 
 ### CA-RF20-02 — Balance negativo
 
@@ -232,7 +237,9 @@ Todos los casos usan `?mes=2026-10`.
 
 - **Dado** cualquier consulta válida
 - **Cuando** responde 200
-- **Entonces** el cuerpo tiene exactamente las propiedades `desde`, `hasta`, `ingresos`, `egresos`, `pagosTarjeta`, `abonosDeuda`, `dineroRecibido` y `balance`; las fechas son cadenas `YYYY-MM-DD` y los totales son números (el Adapter del frontend depende de esta forma)
+- **Entonces** el cuerpo tiene exactamente las propiedades `desde`, `hasta`, `ingresos`, `egresos`, `pagosTarjeta`, `abonosDeuda`, `dineroRecibido`, `balance` y `dineroDisponible`; las fechas son cadenas `YYYY-MM-DD` y los totales son números (el Adapter del frontend depende de esta forma)
+
+> Modificado por 6.1.2 (D1, 2026-11-27): se agrega `dineroDisponible`.
 
 ---
 
