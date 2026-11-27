@@ -134,7 +134,15 @@ class CategoriasEnMemoria {
 }
 
 const dia = (texto: string) => new Date(`${texto}T00:00:00.000Z`);
-const CEROS = { ingresos: 0, egresos: 0, pagosTarjeta: 0, abonosDeuda: 0, dineroRecibido: 0, balance: 0 };
+const CEROS = {
+  ingresos: 0,
+  egresos: 0,
+  pagosTarjeta: 0,
+  abonosDeuda: 0,
+  dineroRecibido: 0,
+  balance: 0,
+  dineroDisponible: 0,
+};
 
 describe('GET /reportes/periodo (integración: guard de sesión real y MongoDB simulado)', () => {
   let app: INestApplication;
@@ -448,6 +456,7 @@ describe('GET /reportes/periodo (integración: guard de sesión real y MongoDB s
         abonosDeuda: 0,
         dineroRecibido: 0,
         balance: 1420300,
+        dineroDisponible: 1420300,
       });
     });
 
@@ -599,12 +608,21 @@ describe('GET /reportes/periodo (integración: guard de sesión real y MongoDB s
       const { status, body } = await consultar('?mes=2026-10');
 
       expect(status).toBe(200);
-      expect(Object.keys(body).sort()).toEqual(
-        ['abonosDeuda', 'balance', 'desde', 'dineroRecibido', 'egresos', 'hasta', 'ingresos', 'pagosTarjeta'],
-      );
+      expect(Object.keys(body).sort()).toEqual([
+        'abonosDeuda',
+        'balance',
+        'desde',
+        'dineroDisponible',
+        'dineroRecibido',
+        'egresos',
+        'hasta',
+        'ingresos',
+        'pagosTarjeta',
+      ]);
       expect(body.desde).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(body.hasta).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      for (const total of ['ingresos', 'egresos', 'pagosTarjeta', 'abonosDeuda', 'dineroRecibido', 'balance']) {
+      const totales = ['ingresos', 'egresos', 'pagosTarjeta', 'abonosDeuda', 'dineroRecibido', 'balance', 'dineroDisponible'];
+      for (const total of totales) {
         expect(typeof body[total]).toBe('number');
       }
     });

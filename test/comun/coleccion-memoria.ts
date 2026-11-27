@@ -21,8 +21,12 @@ export interface IndiceUnico {
   clave: (registro: Doc) => string;
 }
 
-const comparable = (valor: unknown): unknown =>
-  valor instanceof Date ? valor.getTime() : valor instanceof ObjectId ? valor.toString() : valor;
+/** `plegar`: comparar texto sin distinguir mayúsculas (sí tildes), como una intercalación con `strength` 2. */
+const comparable = (valor: unknown, plegar = false): unknown => {
+  if (valor instanceof Date) return valor.getTime();
+  if (valor instanceof ObjectId) return valor.toString();
+  return plegar && typeof valor === 'string' ? valor.toLocaleLowerCase('es') : valor;
+};
 
 const esOperador = (esperado: unknown): esperado is Doc =>
   typeof esperado === 'object' &&
@@ -31,9 +35,10 @@ const esOperador = (esperado: unknown): esperado is Doc =>
   !(esperado instanceof ObjectId) &&
   Object.keys(esperado).some((clave) => clave.startsWith('$'));
 
-function operar(operador: string, real: unknown, valor: unknown): boolean {
-  const izquierda = comparable(real) as any;
-  const derecha = comparable(valor) as any;
+function operar(operador: string, real: unknown, valor: unknown, plegar: boolean): boolean {
+  const normalizar = (v: unknown) => comparable(v, plegar);
+  const izquierda = normalizar(real) as any;
+  const derecha = normalizar(valor) as any;
   switch (operador) {
     case '$eq':
       return izquierda === derecha;
@@ -48,28 +53,28 @@ function operar(operador: string, real: unknown, valor: unknown): boolean {
     case '$lte':
       return izquierda <= derecha;
     case '$in':
-      return (valor as unknown[]).map(comparable).includes(izquierda);
+      return (valor as unknown[]).map(normalizar).includes(izquierda);
     case '$nin':
-      return !(valor as unknown[]).map(comparable).includes(izquierda);
+      return !(valor as unknown[]).map(normalizar).includes(izquierda);
     default:
       throw new Error(`El arnés de pruebas no soporta el operador ${operador}`);
   }
 }
 
-function coincide(registro: Doc, filtro: Doc = {}): boolean {
+function coincide(registro: Doc, filtro: Doc = {}, plegar = false): boolean {
   return Object.entries(filtro).every(([campo, esperado]) => {
-    if (campo === '$and') return (esperado as Doc[]).every((sub) => coincide(registro, sub));
-    if (campo === '$or') return (esperado as Doc[]).some((sub) => coincide(registro, sub));
+    if (campo === '$and') return (esperado as Doc[]).every((sub) => coincide(registro, sub, plegar));
+    if (campo === '$or') return (esperado as Doc[]).some((sub) => coincide(registro, sub, plegar));
     const real = registro[campo];
     if (esOperador(esperado)) {
-      return Object.entries(esperado).every(([operador, valor]) => operar(operador, real, valor));
+      return Object.entries(esperado).every(([operador, valor]) => operar(operador, real, valor, plegar));
     }
-    return comparable(real) === comparable(esperado);
+    return comparable(real, plegar) === comparable(esperado, plegar);
   });
 }
 
 /** `{ periodo: -1 }`, `'-periodo'` o `[['periodo', -1]]` → comparador. */
-function comparador(orden: unknown): (a: Doc, b: Doc) => number {
+function comparador(orden: unknown, plegar = false): (a: Doc, b: Doc) => number {
   const criterios: Array<[string, number]> = [];
   const sentidoDe = (sentido: number | string) =>
     sentido === -1 || sentido === 'desc' || sentido === 'descending' ? -1 : 1;
@@ -89,6 +94,11 @@ function comparador(orden: unknown): (a: Doc, b: Doc) => number {
     for (const [campo, sentido] of criterios) {
       const x = comparable(a[campo]) as any;
       const y = comparable(b[campo]) as any;
+      if (plegar && typeof x === 'string' && typeof y === 'string') {
+        const diferencia = x.localeCompare(y, 'es', { sensitivity: 'accent' });
+        if (diferencia !== 0) return Math.sign(diferencia) * sentido;
+        continue;
+      }
       if (x < y) return -sentido;
       if (x > y) return sentido;
     }
@@ -102,6 +112,7 @@ class Consulta<T> {
   orden: unknown;
   tope: number | undefined;
   saltos = 0;
+  intercalacion: Doc | undefined;
 
   constructor(private readonly ejecutar: (consulta: Consulta<T>) => Promise<T>) {}
 
@@ -133,7 +144,8 @@ class Consulta<T> {
     return this;
   }
 
-  collation() {
+  collation(intercalacion?: Doc) {
+    this.intercalacion = intercalacion;
     return this;
   }
 
@@ -194,6 +206,11 @@ export class ColeccionEnMemoria {
   registros: Doc[] = [];
   /** Si es `true`, toda escritura (crear, guardar, actualizar, borrar) falla como si la base no respondiera. */
   fallaEscritura = false;
+  /**
+   * Si es `true`, `find`, `findOne` y `exists` respetan `.collation()` con `strength` 1 o 2: el texto se compara y se
+   * ordena sin distinguir mayúsculas. Sin intercalación en la consulta, como en MongoDB, la comparación es exacta.
+   */
+  protected readonly respetaIntercalacion: boolean = false;
   /** Los campos que guarda el esquema (sin `__v`): lo que devuelve `toObject()`. */
   readonly campos: string[];
   private readonly modelo;
@@ -217,11 +234,17 @@ export class ColeccionEnMemoria {
     return new DocumentoHidratado(this, { ...registro });
   }
 
+  private pliega(consulta: { intercalacion?: Doc }): boolean {
+    return this.respetaIntercalacion && (consulta.intercalacion?.strength ?? 3) <= 2;
+  }
+
   private resultado(
-    consulta: { esLean: boolean; orden: unknown; saltos: number; tope: number | undefined },
+    consulta: { esLean: boolean; orden: unknown; saltos: number; tope: number | undefined; intercalacion?: Doc },
     registros: Doc[],
   ): any[] {
-    const ordenados = consulta.orden ? [...registros].sort(comparador(consulta.orden)) : [...registros];
+    const ordenados = consulta.orden
+      ? [...registros].sort(comparador(consulta.orden, this.pliega(consulta)))
+      : [...registros];
     const recortados = ordenados.slice(consulta.saltos, consulta.tope ? consulta.saltos + consulta.tope : undefined);
     return recortados.map((registro) => (consulta.esLean ? { ...registro } : this.hidratar(registro)));
   }
@@ -281,7 +304,7 @@ export class ColeccionEnMemoria {
       await pausa();
       return this.resultado(
         consulta,
-        this.registros.filter((r) => coincide(r, filtro)),
+        this.registros.filter((r) => coincide(r, filtro, this.pliega(consulta))),
       );
     });
   }
@@ -289,7 +312,7 @@ export class ColeccionEnMemoria {
   findOne(filtro: Doc = {}) {
     return new Consulta<any>(async (consulta) => {
       await pausa();
-      const primero = this.registros.find((r) => coincide(r, filtro));
+      const primero = this.registros.find((r) => coincide(r, filtro, this.pliega(consulta)));
       return primero ? this.resultado(consulta, [primero])[0] : null;
     });
   }
@@ -386,9 +409,9 @@ export class ColeccionEnMemoria {
   }
 
   exists(filtro: Doc) {
-    return new Consulta<Doc | null>(async () => {
+    return new Consulta<Doc | null>(async (consulta) => {
       await pausa();
-      const registro = this.registros.find((r) => coincide(r, filtro));
+      const registro = this.registros.find((r) => coincide(r, filtro, this.pliega(consulta)));
       return registro ? { _id: registro._id } : null;
     });
   }
