@@ -135,6 +135,24 @@ describe('GET /deudas y DELETE /deudas/:deudaId/prestamos/:prestamoId (integraci
       expect(e.foto()).toEqual(antes);
     });
 
+    it('CA-RF34-28 si falla el borrado de la deuda, responde 500 y el préstamo se recupera', async () => {
+      const deudaId = await e.sembrarDeuda();
+      const prestamo = await e.sembrarPrestamo(deudaId);
+      const antes = e.foto();
+      e.deudas.fallaEscritura = true;
+
+      const { status } = await e.eliminar(deudaId, prestamo);
+
+      expect(status).toBe(500);
+      expect(e.foto()).toEqual(antes);
+
+      // Con la base de vuelta, el mismo préstamo (mismo id) se puede eliminar junto con su deuda.
+      e.deudas.fallaEscritura = false;
+      expect((await e.eliminar(deudaId, prestamo)).status).toBe(204);
+      expect(e.deudas.docs).toHaveLength(0);
+      expect(e.transacciones.docs).toHaveLength(0);
+    });
+
     /** Dos deudas de A (la segunda con abono), un egreso ordinario de A y una deuda de B. */
     const escenario = async () => {
       const primera = await e.sembrarDeuda({ acreedor: 'Primera' });

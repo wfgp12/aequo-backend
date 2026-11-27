@@ -94,6 +94,18 @@ describe('POST /deudas/prestamos: sumar a una deuda e interés (integración)', 
       expect(e.deudas.docs).toHaveLength(0);
       expect(e.transacciones.docs).toHaveLength(0);
     });
+
+    it('CA-RF35-05 otro error al crear la deuda (código distinto de 11000) responde 500 y no deja préstamo', async () => {
+      vi.spyOn(e.deudas, 'create').mockRejectedValue(
+        Object.assign(new Error('Document failed validation'), { code: 121 }),
+      );
+
+      const { status } = await e.registrar(e.prestamoBase());
+
+      expect(status).toBe(500);
+      expect(e.deudas.docs).toHaveLength(0);
+      expect(e.transacciones.docs).toHaveLength(0);
+    });
   });
 
   describe('RF-36: interés del préstamo', () => {
