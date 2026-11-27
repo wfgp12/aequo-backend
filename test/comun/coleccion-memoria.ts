@@ -197,6 +197,8 @@ class DocumentoHidratado {
 
 const pausa = () => new Promise<void>((resolver) => setImmediate(resolver));
 
+export type Operacion = 'leer' | 'crear' | 'actualizar' | 'borrar';
+
 export const errorDeClaveDuplicada = (detalle = 'indice') =>
   Object.assign(new Error(`E11000 duplicate key error ${detalle}`), { code: 11000 });
 
@@ -206,6 +208,11 @@ export class ColeccionEnMemoria {
   registros: Doc[] = [];
   /** Si es `true`, toda escritura (crear, guardar, actualizar, borrar) falla como si la base no respondiera. */
   fallaEscritura = false;
+  /**
+   * Se llama al llegar cada operación, antes de ejecutarla. Si devuelve una promesa, la operación espera: así una prueba
+   * detiene una petición en un punto exacto y cruza otra con ella.
+   */
+  alOperar?: (operacion: Operacion) => Promise<void> | void;
   /**
    * Si es `true`, `find`, `findOne` y `exists` respetan `.collation()` con `strength` 1 o 2: el texto se compara y se
    * ordena sin distinguir mayúsculas. Sin intercalación en la consulta, como en MongoDB, la comparación es exacta.
@@ -249,6 +256,12 @@ export class ColeccionEnMemoria {
     return recortados.map((registro) => (consulta.esLean ? { ...registro } : this.hidratar(registro)));
   }
 
+  /** El «viaje a la red» de cada operación, con el punto de control de `alOperar`. */
+  private async turno(operacion: Operacion): Promise<void> {
+    await pausa();
+    await this.alOperar?.(operacion);
+  }
+
   private verificarEscritura(): void {
     if (this.fallaEscritura) throw new Error('Fallo simulado de la base de datos');
   }
@@ -276,7 +289,7 @@ export class ColeccionEnMemoria {
   }
 
   async create(datos: Doc): Promise<DocumentoHidratado> {
-    await pausa();
+    await this.turno('crear');
     this.verificarEscritura();
     const instancia = new this.modelo(datos);
     await instancia.validate();
@@ -288,7 +301,7 @@ export class ColeccionEnMemoria {
   }
 
   async guardar(doc: DocumentoHidratado): Promise<DocumentoHidratado> {
-    await pausa();
+    await this.turno('actualizar');
     this.verificarEscritura();
     const instancia = new this.modelo(doc.toObject());
     await instancia.validate();
@@ -301,7 +314,7 @@ export class ColeccionEnMemoria {
 
   find(filtro: Doc = {}) {
     return new Consulta<any[]>(async (consulta) => {
-      await pausa();
+      await this.turno('leer');
       return this.resultado(
         consulta,
         this.registros.filter((r) => coincide(r, filtro, this.pliega(consulta))),
@@ -311,7 +324,7 @@ export class ColeccionEnMemoria {
 
   findOne(filtro: Doc = {}) {
     return new Consulta<any>(async (consulta) => {
-      await pausa();
+      await this.turno('leer');
       const primero = this.registros.find((r) => coincide(r, filtro, this.pliega(consulta)));
       return primero ? this.resultado(consulta, [primero])[0] : null;
     });
@@ -323,7 +336,7 @@ export class ColeccionEnMemoria {
 
   findOneAndUpdate(filtro: Doc, actualizacion: Doc, opciones: Doc = {}) {
     return new Consulta<any>(async (consulta) => {
-      await pausa();
+      await this.turno('actualizar');
       this.verificarEscritura();
       const registro = this.registros.find((r) => coincide(r, filtro));
       if (!registro) return null;
@@ -340,7 +353,7 @@ export class ColeccionEnMemoria {
 
   updateOne(filtro: Doc, actualizacion: Doc) {
     return new Consulta<Doc>(async () => {
-      await pausa();
+      await this.turno('actualizar');
       this.verificarEscritura();
       const registro = this.registros.find((r) => coincide(r, filtro));
       if (!registro) return { acknowledged: true, matchedCount: 0, modifiedCount: 0 };
@@ -352,7 +365,7 @@ export class ColeccionEnMemoria {
   /** Actualiza todos los registros que cumplan el filtro (con `$set` o con los campos directos). */
   updateMany(filtro: Doc, actualizacion: Doc) {
     return new Consulta<Doc>(async () => {
-      await pausa();
+      await this.turno('actualizar');
       this.verificarEscritura();
       const coincidencias = this.registros.filter((r) => coincide(r, filtro));
       for (const registro of coincidencias) this.aplicar(registro, actualizacion);
@@ -368,7 +381,7 @@ export class ColeccionEnMemoria {
 
   findOneAndDelete(filtro: Doc) {
     return new Consulta<any>(async (consulta) => {
-      await pausa();
+      await this.turno('borrar');
       this.verificarEscritura();
       const registro = this.registros.find((r) => coincide(r, filtro));
       if (!registro) return null;
@@ -383,7 +396,7 @@ export class ColeccionEnMemoria {
 
   deleteOne(filtro: Doc) {
     return new Consulta<Doc>(async () => {
-      await pausa();
+      await this.turno('borrar');
       this.verificarEscritura();
       const registro = this.registros.find((r) => coincide(r, filtro));
       if (registro) this.registros = this.registros.filter((r) => r !== registro);
@@ -393,7 +406,7 @@ export class ColeccionEnMemoria {
 
   deleteMany(filtro: Doc = {}) {
     return new Consulta<Doc>(async () => {
-      await pausa();
+      await this.turno('borrar');
       this.verificarEscritura();
       const antes = this.registros.length;
       this.registros = this.registros.filter((r) => !coincide(r, filtro));
@@ -403,14 +416,14 @@ export class ColeccionEnMemoria {
 
   countDocuments(filtro: Doc = {}) {
     return new Consulta<number>(async () => {
-      await pausa();
+      await this.turno('leer');
       return this.registros.filter((r) => coincide(r, filtro)).length;
     });
   }
 
   exists(filtro: Doc) {
     return new Consulta<Doc | null>(async (consulta) => {
-      await pausa();
+      await this.turno('leer');
       const registro = this.registros.find((r) => coincide(r, filtro, this.pliega(consulta)));
       return registro ? { _id: registro._id } : null;
     });
