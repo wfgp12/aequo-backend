@@ -9,6 +9,7 @@ import type { ListarPagosQueryDto } from './dto/listar-pagos-query.dto.js';
 import type { PagoRegistradoRespuestaDto, PagoRespuestaDto } from './dto/pago-respuesta.dto.js';
 import { aFecha } from './fechas.js';
 import { TarjetasService } from './tarjetas.service.js';
+import { conCodigo } from '../common/errores.catalogo.js';
 
 const MENSAJES = { pagoNoEncontrado: 'Pago no encontrado' };
 
@@ -83,6 +84,6 @@ export class PagosService {
       tarjetaId: tarjeta._id,
       clasificacionFlujo: ClasificacionFlujo.PAGO_TARJETA,
     });
-    if (!eliminado) throw new NotFoundException(MENSAJES.pagoNoEncontrado);
+    if (!eliminado) throw conCodigo('PAGO_NO_ENCONTRADO', new NotFoundException(MENSAJES.pagoNoEncontrado));
   }
 }

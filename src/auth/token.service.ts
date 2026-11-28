@@ -1,8 +1,11 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { conCodigo } from '../common/errores.catalogo.js';
 
 /** Mismo mensaje para token ausente, vencido o manipulado: no se da pistas sobre el motivo. */
 export const MENSAJE_SESION_INVALIDA = 'Sesión inválida o vencida';
+
+export const sesionInvalida = () => conCodigo('SESION_INVALIDA', new UnauthorizedException(MENSAJE_SESION_INVALIDA));
 
 /** Emite y valida el JWT propio de la sesión (ADR-0007). El payload solo lleva `sub` (id del usuario). */
 @Injectable()
@@ -23,6 +26,6 @@ export class TokenService {
     } catch {
       // Firma incorrecta, token vencido o malformado: se trata igual que un payload sin `sub`.
     }
-    throw new UnauthorizedException(MENSAJE_SESION_INVALIDA);
+    throw sesionInvalida();
   }
 }

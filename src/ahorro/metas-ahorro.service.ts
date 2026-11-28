@@ -7,6 +7,7 @@ import type { ListarMetasAhorroQueryDto } from './dto/listar-metas-ahorro-query.
 import type { MetaAhorroRespuestaDto } from './dto/meta-ahorro-respuesta.dto.js';
 import { TipoMeta } from './meta-ahorro.enums.js';
 import { MetaAhorro, type MetaAhorroDocument } from './meta-ahorro.schema.js';
+import { conCodigo } from '../common/errores.catalogo.js';
 
 const MENSAJES = {
   noEncontrada: 'Meta de ahorro no encontrada',
@@ -41,7 +42,8 @@ function validarTope(tipoMeta: TipoMeta, valorObjetivo: number): void {
 
 /** El índice único `{ usuarioId, periodo }` frena las carreras: su error de clave duplicada (11000) es un 409. */
 function comoConflicto(error: unknown): never {
-  if ((error as { code?: number })?.code === 11000) throw new ConflictException(MENSAJES.duplicada);
+  if ((error as { code?: number })?.code === 11000)
+    throw conCodigo('META_DUPLICADA', new ConflictException(MENSAJES.duplicada));
   throw error;
 }
 
@@ -120,14 +122,14 @@ export class MetasAhorroService {
   /** Elimina una meta propia sin ahorro registrado (ni positivo ni negativo): con ahorro hay que dejarlo en 0 antes. */
   async eliminar(usuarioId: string, id: string): Promise<void> {
     const meta = await this.obtenerPropia(usuarioId, id);
-    if (meta.ahorroReal !== 0) throw new ConflictException(MENSAJES.conAhorro);
+    if (meta.ahorroReal !== 0) throw conCodigo('META_CON_AHORRO', new ConflictException(MENSAJES.conAhorro));
     await this.metas.deleteOne({ _id: meta._id });
   }
 
   /** La meta solo si es del usuario: una inexistente y una ajena dan el mismo 404, para no revelar qué ids existen. */
   private async obtenerPropia(usuarioId: string, id: string) {
     const meta = await this.metas.findOne({ _id: new Types.ObjectId(id), usuarioId: new Types.ObjectId(usuarioId) });
-    if (!meta) throw new NotFoundException(MENSAJES.noEncontrada);
+    if (!meta) throw conCodigo('META_NO_ENCONTRADA', new NotFoundException(MENSAJES.noEncontrada));
     return meta;
   }
 }

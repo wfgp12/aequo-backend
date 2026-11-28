@@ -13,6 +13,7 @@ import type {
   PrestamoRespuestaDto,
 } from './dto/deuda-respuesta.dto.js';
 import { DESCRIPCION_PRESTAMO, type RegistrarPrestamoDto } from './dto/registrar-prestamo.dto.js';
+import { conCodigo } from '../common/errores.catalogo.js';
 
 const MENSAJES = {
   deudaNoEncontrada: 'Deuda no encontrada',
@@ -48,7 +49,7 @@ function exigirMismoInteres(deuda: DeudaDocument, { tipoInteres, valorInteres }:
   if (tipoInteres === undefined && valorInteres === undefined) return;
   const mismo =
     deuda.tipoInteres === (tipoInteres ?? TipoInteres.SIN_INTERES) && deuda.valorInteres === (valorInteres ?? 0);
-  if (!mismo) throw new ConflictException(MENSAJES.otroInteres);
+  if (!mismo) throw conCodigo('DEUDA_INTERES_DISTINTO', new ConflictException(MENSAJES.otroInteres));
 }
 
 /**
@@ -140,12 +141,12 @@ export class DeudasService {
   private async eliminarEnTurno(usuarioId: string, deudaId: string, prestamoId: string): Promise<void> {
     const usuario = new Types.ObjectId(usuarioId);
     const deuda = await this.deudas.findOne({ _id: new Types.ObjectId(deudaId), usuarioId: usuario });
-    if (!deuda) throw new NotFoundException(MENSAJES.deudaNoEncontrada);
+    if (!deuda) throw conCodigo('DEUDA_NO_ENCONTRADA', new NotFoundException(MENSAJES.deudaNoEncontrada));
 
     const deLaDeuda = { usuarioId: usuario, deudaId: deuda._id };
     const prestamos = { ...deLaDeuda, clasificacionFlujo: ClasificacionFlujo.DINERO_RECIBIDO };
     const prestamo = await this.transacciones.findOne({ _id: new Types.ObjectId(prestamoId), ...prestamos });
-    if (!prestamo) throw new NotFoundException(MENSAJES.prestamoNoEncontrado);
+    if (!prestamo) throw conCodigo('PRESTAMO_NO_ENCONTRADO', new NotFoundException(MENSAJES.prestamoNoEncontrado));
 
     const esElUnico = (await this.transacciones.countDocuments(prestamos)) === 1;
     if (esElUnico) await this.exigirSinAbonos(deLaDeuda);
@@ -175,7 +176,7 @@ export class DeudasService {
 
   private async exigirSinAbonos(deLaDeuda: { usuarioId: Types.ObjectId; deudaId: Types.ObjectId }): Promise<void> {
     const abono = await this.transacciones.exists({ ...deLaDeuda, clasificacionFlujo: ClasificacionFlujo.ABONO_DEUDA });
-    if (abono) throw new ConflictException(MENSAJES.unicoConAbonos);
+    if (abono) throw conCodigo('DEUDA_CON_ABONOS', new ConflictException(MENSAJES.unicoConAbonos));
   }
 
   /** El índice único de la deuda activa frena las carreras: su error de clave duplicada (11000) es un 409. */
@@ -183,7 +184,8 @@ export class DeudasService {
     try {
       return await this.deudas.create({ usuarioId, acreedor, tipoInteres, valorInteres });
     } catch (error) {
-      if ((error as { code?: number })?.code === 11000) throw new ConflictException(MENSAJES.registroSimultaneo);
+      if ((error as { code?: number })?.code === 11000)
+        throw conCodigo('DEUDA_REGISTRO_SIMULTANEO', new ConflictException(MENSAJES.registroSimultaneo));
       throw error;
     }
   }

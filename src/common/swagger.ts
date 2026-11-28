@@ -12,12 +12,30 @@ API REST de **Aequo**, una aplicación de gestión financiera personal. Todos lo
 
 En esta página: pulsa **Authorize**, pega el \`accessToken\` (sin la palabra Bearer) y las pruebas de "Try it out" irán autenticadas. En desarrollo puedes obtener uno con \`POST /auth/dev-login\`.
 
+## Errores
+
+Toda respuesta de error es \`{ statusCode, error, message, code, action? }\` y no tiene más propiedades:
+
+- \`statusCode\` y \`error\`: el estado HTTP y su nombre.
+- \`message\`: el motivo. En los \`400\` de validación (\`VALIDACION\`) es un arreglo con un texto por problema; en el resto es un texto.
+- \`code\`: identificador estable, siempre presente. **El cliente decide por \`code\`, nunca por el texto** de \`message\` ni de \`action\`, que pueden cambiar sin aviso. Ante un código desconocido, decide por el estado HTTP.
+- \`action\`: qué puede hacer el usuario, en español. Si el código no tiene una, la propiedad no aparece.
+
+Un \`500\` nunca trae detalles del fallo: quedan en el log del servidor.
+
+Catálogo de códigos:
+
+- Generales: \`VALIDACION\` (400, datos o parámetros inválidos), \`SESION_INVALIDA\` (401, sin sesión válida), \`TOKEN_GOOGLE_INVALIDO\` (401, login con un ID Token inválido o sin correo), \`RUTA_NO_ENCONTRADA\` (404, ruta o método que no existe), \`ERROR_HTTP\` (otros 4xx: JSON mal formado, cuerpo de más de 100 KB, juego de caracteres no admitido), \`ERROR_INTERNO\` (5xx).
+- No encontrado (404, el dato no existe o es de otro usuario): \`CATEGORIA_NO_ENCONTRADA\`, \`TRANSACCION_NO_ENCONTRADA\`, \`META_NO_ENCONTRADA\`, \`TARJETA_NO_ENCONTRADA\`, \`CARGO_NO_ENCONTRADO\`, \`COMPRA_NO_ENCONTRADA\`, \`PAGO_NO_ENCONTRADO\`, \`DEUDA_NO_ENCONTRADA\`, \`PRESTAMO_NO_ENCONTRADO\`.
+- No permitido (403): \`CATEGORIA_PREDETERMINADA\`.
+- Conflicto (409): \`CATEGORIA_DUPLICADA\`, \`META_DUPLICADA\`, \`META_CON_AHORRO\`, \`TARJETA_DUPLICADA\`, \`TARJETA_CON_COMPRAS\`, \`TARJETA_CON_PAGOS\`, \`TRANSACCION_DE_OTRO_MODULO\`, \`DEUDA_INTERES_DISTINTO\`, \`DEUDA_REGISTRO_SIMULTANEO\`, \`DEUDA_CON_ABONOS\`, \`IDEMPOTENCIA_EN_PROCESO\`.
+- No procesable (422): \`IDEMPOTENCIA_CLAVE_REUTILIZADA\`.
+
 ## Convenciones
 
 - Cuerpos y respuestas en JSON.
 - **Todas las rutas exigen sesión (JWT) por defecto.** Solo son públicas \`POST /auth/login\` y, en desarrollo, \`POST /auth/dev-login\`. Sin un token válido (ausente, vencido o manipulado) la respuesta es siempre \`401\` con el mensaje \`Sesión inválida o vencida\`: el cliente debe cerrar la sesión local y volver al login.
 - **Contrato estricto:** un campo que el endpoint no declara en el body se rechaza con \`400\`; no se ignora.
-- **Errores:** siempre con la forma \`{ statusCode, message, error }\`. En los \`400\` de validación \`message\` es un arreglo de textos; en el resto es un texto.
 - El usuario se identifica por el **UID de Firebase**, nunca por el correo.
 - Los montos están en pesos colombianos.
 - **Zona horaria:** los endpoints de reportes que usan "hoy" (\`GET /reportes/periodo\` y \`GET /reportes/categorias\`) aceptan el header opcional \`X-Zona-Horaria\` con un nombre de zona IANA (ejemplo: \`America/Bogota\`). Solo decide qué mes es el "mes actual" cuando no se envía \`mes\` ni \`desde\`/\`hasta\`; sin el header se usa UTC. Un nombre inválido responde \`400\` aunque se envíe \`mes\` o un rango.

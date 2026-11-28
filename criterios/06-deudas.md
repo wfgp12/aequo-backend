@@ -577,9 +577,41 @@ Usuario A con sesión. **Préstamo base:** `{ "acreedor": "Juan Pérez", "monto"
 
 > Decisión D5.
 
+---
+
+## Refuerzo del 6.1.2
+
+> Agregado en refuerzo. Aprobado por el desarrollador el 2026-11-27.
+
+Las pruebas de estos criterios ya están en `develop` y conservan en su nombre el ID del criterio del que nacieron, que se indica en cada uno.
+
+### CA-RF34-34 — Si falla el borrado de la deuda no se pierde el préstamo
+
+- **Dado** una deuda de A con un solo préstamo y sin abonos, y que el borrado de la deuda falla
+- **Cuando** A elimina ese préstamo
+- **Entonces** responde `500` y la deuda y el préstamo siguen como estaban
+
+Prueba: `deudas-listar-eliminar.integration.spec.ts`, «CA-RF34-28 si falla el borrado de la deuda…».
+
+### CA-RF34-35 — Escrituras simultáneas sobre la misma deuda
+
+- **Dado** una deuda activa de A
+- **Cuando** a la vez se le suma un préstamo y se elimina el que tenía (en cualquier orden de llegada), o se eliminan a la vez sus dos préstamos
+- **Entonces** ambas peticiones responden con éxito (`201` y `204`, o `204` y `204`) y no queda ningún préstamo sin deuda ni deuda sin préstamos
+
+Prueba: `deudas-concurrencia.integration.spec.ts`, las tres «CA-RF34-28 …».
+
+### CA-RF35-06 — Un fallo al crear la deuda que no es un duplicado
+
+- **Dado** que crear la deuda falla con un error distinto de clave duplicada (por ejemplo, código 121)
+- **Cuando** A registra el préstamo
+- **Entonces** responde `500` (no `409`) y no se guarda nada
+
+Prueba: `prestamos-acreedor-interes.integration.spec.ts`, «CA-RF35-05 otro error al crear la deuda…».
+
 ## Índice de criterios del paquete 6.1.2
 
-- **RF-34:** CA-RF34-14 a CA-RF34-33.
-- **RF-35:** CA-RF35-01 a CA-RF35-05.
+- **RF-34:** CA-RF34-14 a CA-RF34-35.
+- **RF-35:** CA-RF35-01 a CA-RF35-06.
 - **RF-36:** CA-RF36-10 a CA-RF36-14.
-- **Total:** 30 criterios.
+- **Total:** 33 criterios.

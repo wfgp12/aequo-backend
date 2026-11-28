@@ -11,6 +11,7 @@ import type { PaginaTransaccionesRespuestaDto } from './dto/pagina-transacciones
 import type { TransaccionRespuestaDto } from './dto/transaccion-respuesta.dto.js';
 import { ClasificacionFlujo } from './transaccion.enums.js';
 import { Transaccion, type TransaccionDocument } from './transaccion.schema.js';
+import { conCodigo } from '../common/errores.catalogo.js';
 
 /** Las fechas se guardan a medianoche UTC del día indicado, así que un día YYYY-MM-DD se compara tal cual. */
 const aFecha = (dia: string) => new Date(`${dia}T00:00:00.000Z`);
@@ -115,11 +116,14 @@ export class TransaccionesService {
       usuarioId: new Types.ObjectId(usuarioId),
     });
     if (!transaccion) {
-      throw new NotFoundException('Transacción no encontrada');
+      throw conCodigo('TRANSACCION_NO_ENCONTRADA', new NotFoundException('Transacción no encontrada'));
     }
     if (transaccion.clasificacionFlujo !== ClasificacionFlujo.ORDINARIO) {
-      throw new ConflictException(
-        `Esta transacción la genera otro módulo (tarjetas o deudas) y no se puede ${accion} desde aquí`,
+      throw conCodigo(
+        'TRANSACCION_DE_OTRO_MODULO',
+        new ConflictException(
+          `Esta transacción la genera otro módulo (tarjetas o deudas) y no se puede ${accion} desde aquí`,
+        ),
       );
     }
     return transaccion;

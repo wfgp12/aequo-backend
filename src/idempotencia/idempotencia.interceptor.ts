@@ -17,6 +17,7 @@ import { catchError, from, map, mergeMap, type Observable, of, throwError } from
 import type { SolicitudAutenticada } from '../auth/decoradores.js';
 import { calcularHuella } from './huella.js';
 import { EstadoIdempotencia, Idempotencia } from './idempotencia.schema.js';
+import { conCodigo } from '../common/errores.catalogo.js';
 
 export const CABECERA_IDEMPOTENCIA = 'idempotency-key';
 export const CABECERA_REPETIDA = 'Idempotent-Replayed';
@@ -95,8 +96,11 @@ export class IdempotenciaInterceptor implements NestInterceptor {
         continue; // se liberó entre medias: se vuelve a intentar reclamarla
       }
       if (existente.huella !== huella) {
-        throw new UnprocessableEntityException(
-          'La clave Idempotency-Key ya se usó con otra petición: genera una clave nueva para una acción nueva',
+        throw conCodigo(
+          'IDEMPOTENCIA_CLAVE_REUTILIZADA',
+          new UnprocessableEntityException(
+            'La clave Idempotency-Key ya se usó con otra petición: genera una clave nueva para una acción nueva',
+          ),
         );
       }
       if (existente.estado === EstadoIdempotencia.COMPLETADA) {
@@ -108,7 +112,10 @@ export class IdempotenciaInterceptor implements NestInterceptor {
       }
       break;
     }
-    throw new ConflictException('La petición ya se está procesando: espera su resultado antes de reintentar');
+    throw conCodigo(
+      'IDEMPOTENCIA_EN_PROCESO',
+      new ConflictException('La petición ya se está procesando: espera su resultado antes de reintentar'),
+    );
   }
 
   /**
