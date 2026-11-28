@@ -13,6 +13,7 @@ import { TarjetasModule } from './tarjetas/tarjetas.module.js';
 import { TransaccionesModule } from './transacciones/transacciones.module.js';
 import { UsuariosModule } from './usuarios/usuarios.module.js';
 import { DevSessionModule, devSessionHabilitada } from './auth/dev-session.module.js';
+import { ErroresModule } from './common/errores.module.js';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { DevSessionModule, devSessionHabilitada } from './auth/dev-session.modul
         }),
       }),
     }),
+    ErroresModule,
     AuthModule,
     UsuariosModule,
     CategoriasModule,

@@ -19,6 +19,7 @@ import { aFecha, rangoDelMes } from './fechas.js';
 import type { TarjetaCreditoDocument } from './tarjeta-credito.schema.js';
 import { TarjetasService } from './tarjetas.service.js';
 import { validarCuerpo } from './validar-cuerpo.js';
+import { conCodigo } from '../common/errores.catalogo.js';
 
 const MENSAJES = {
   compraNoEncontrada: 'Compra no encontrada',
@@ -245,7 +246,7 @@ export class ComprasService {
   /** La categoría de la compra: general o del usuario (404 si no) y de egresos (400 si es de ingresos). */
   private async categoriaDeEgreso(usuarioId: string, id: string) {
     const categoria = await this.categorias.obtenerDisponible(usuarioId, id);
-    if (!categoria) throw new NotFoundException(MENSAJES.categoriaNoEncontrada);
+    if (!categoria) throw conCodigo('CATEGORIA_NO_ENCONTRADA', new NotFoundException(MENSAJES.categoriaNoEncontrada));
     if (categoria.tipo !== TipoTransaccion.EGRESO) {
       throw new BadRequestException(['categoriaId debe ser una categoría de egresos: una compra es un gasto']);
     }
@@ -260,7 +261,7 @@ export class ComprasService {
       tarjetaId: tarjeta._id,
       usuarioId: tarjeta.usuarioId,
     });
-    if (!compra) throw new NotFoundException(MENSAJES.compraNoEncontrada);
+    if (!compra) throw conCodigo('COMPRA_NO_ENCONTRADA', new NotFoundException(MENSAJES.compraNoEncontrada));
     return compra;
   }
 }

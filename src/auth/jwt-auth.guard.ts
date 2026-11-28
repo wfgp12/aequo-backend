@@ -3,11 +3,10 @@ import {
   type ExecutionContext,
   Inject,
   Injectable,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ES_PUBLICA, type SolicitudAutenticada } from './decoradores.js';
-import { MENSAJE_SESION_INVALIDA, TokenService } from './token.service.js';
+import { sesionInvalida, TokenService } from './token.service.js';
 
 /**
  * Guard global de sesión. Exige `Authorization: Bearer <accessToken>` en toda ruta que no sea @Publica().
@@ -32,7 +31,7 @@ export class JwtAuthGuard implements CanActivate {
     const solicitud = contexto.switchToHttp().getRequest<SolicitudAutenticada>();
     const token = solicitud.headers.authorization?.match(/^Bearer\s+(\S+)$/i)?.[1];
     if (!token) {
-      throw new UnauthorizedException(MENSAJE_SESION_INVALIDA);
+      throw sesionInvalida();
     }
 
     solicitud.usuarioId = (await this.tokens.validar(token)).usuarioId;

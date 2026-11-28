@@ -20,6 +20,7 @@ import { rangoDelMes } from './fechas.js';
 import { calcularProyeccion } from './proyeccion-tarjeta.js';
 import { TarjetaCredito, type TarjetaCreditoDocument } from './tarjeta-credito.schema.js';
 import { validarCuerpo } from './validar-cuerpo.js';
+import { conCodigo } from '../common/errores.catalogo.js';
 
 const MENSAJES = {
   tarjetaNoEncontrada: 'Tarjeta no encontrada',
@@ -56,7 +57,8 @@ export function aCargoRespuesta(cargo: CargoRecurrenteDocument): CargoRespuestaD
 
 /** El índice único `{ usuarioId, nombre }` frena las carreras: su error de clave duplicada (11000) es un 409. */
 function comoConflicto(error: unknown): never {
-  if ((error as { code?: number })?.code === 11000) throw new ConflictException(MENSAJES.nombreDuplicado);
+  if ((error as { code?: number })?.code === 11000)
+    throw conCodigo('TARJETA_DUPLICADA', new ConflictException(MENSAJES.nombreDuplicado));
   throw error;
 }
 
@@ -118,12 +120,13 @@ export class TarjetasService {
    */
   async eliminar(usuarioId: string, id: string): Promise<void> {
     const tarjeta = await this.obtenerPropia(usuarioId, id);
-    if (await this.compras.exists({ tarjetaId: tarjeta._id })) throw new ConflictException(MENSAJES.conCompras);
+    if (await this.compras.exists({ tarjetaId: tarjeta._id }))
+      throw conCodigo('TARJETA_CON_COMPRAS', new ConflictException(MENSAJES.conCompras));
     const conPagos = await this.transacciones.exists({
       usuarioId: new Types.ObjectId(usuarioId),
       tarjetaId: tarjeta._id,
     });
-    if (conPagos) throw new ConflictException(MENSAJES.conPagos);
+    if (conPagos) throw conCodigo('TARJETA_CON_PAGOS', new ConflictException(MENSAJES.conPagos));
     await this.tarjetas.deleteOne({ _id: tarjeta._id });
     await this.cargos.deleteMany({ tarjetaId: tarjeta._id });
   }
@@ -215,7 +218,7 @@ export class TarjetasService {
       _id: new Types.ObjectId(id),
       usuarioId: new Types.ObjectId(usuarioId),
     });
-    if (!tarjeta) throw new NotFoundException(MENSAJES.tarjetaNoEncontrada);
+    if (!tarjeta) throw conCodigo('TARJETA_NO_ENCONTRADA', new NotFoundException(MENSAJES.tarjetaNoEncontrada));
     return tarjeta;
   }
 
@@ -227,7 +230,7 @@ export class TarjetasService {
       tarjetaId: tarjeta._id,
       usuarioId: tarjeta.usuarioId,
     });
-    if (!cargo) throw new NotFoundException(MENSAJES.cargoNoEncontrado);
+    if (!cargo) throw conCodigo('CARGO_NO_ENCONTRADO', new NotFoundException(MENSAJES.cargoNoEncontrado));
     return cargo;
   }
 }

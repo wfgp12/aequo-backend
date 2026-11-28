@@ -5,9 +5,13 @@ import type { Model } from 'mongoose';
 import { Usuario, type UsuarioDocument } from '../usuarios/usuario.schema.js';
 import type { LoginRespuestaDto, UsuarioRespuestaDto } from './dto/login-respuesta.dto.js';
 import { FIREBASE_AUTH } from './firebase-auth.provider.js';
-import { MENSAJE_SESION_INVALIDA, TokenService } from './token.service.js';
+import { sesionInvalida, TokenService } from './token.service.js';
+import { conCodigo } from '../common/errores.catalogo.js';
 
 export const SESION_SEGUNDOS = 24 * 60 * 60; // RNF-01
+
+const tokenGoogleInvalido = () =>
+  conCodigo('TOKEN_GOOGLE_INVALIDO', new UnauthorizedException('ID Token inválido o vencido'));
 
 interface Identidad {
   uid: string;
@@ -41,12 +45,12 @@ export class AuthService {
     } catch (error) {
       // Solo los errores de token son 401; los de red u otros se propagan como 500.
       if ((error as { code?: string }).code?.startsWith('auth/')) {
-        throw new UnauthorizedException('ID Token inválido o vencido');
+        throw tokenGoogleInvalido();
       }
       throw error;
     }
     if (!decoded.email) {
-      throw new UnauthorizedException('ID Token inválido o vencido');
+      throw tokenGoogleInvalido();
     }
     return { ...decoded, email: decoded.email };
   }
@@ -72,7 +76,7 @@ export class AuthService {
   async obtenerPerfil(usuarioId: string): Promise<UsuarioRespuestaDto> {
     const usuario = await this.usuarios.findById(usuarioId);
     if (!usuario) {
-      throw new UnauthorizedException(MENSAJE_SESION_INVALIDA);
+      throw sesionInvalida();
     }
     return this.aPerfil(usuario);
   }

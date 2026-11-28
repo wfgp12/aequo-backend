@@ -14,6 +14,7 @@ import { Categoria, type CategoriaDocument } from './categoria.schema.js';
 import type { CategoriaResumenDto, CategoriaRespuestaDto } from './dto/categoria-respuesta.dto.js';
 import type { CrearCategoriaDto } from './dto/crear-categoria.dto.js';
 import type { RenombrarCategoriaDto } from './dto/renombrar-categoria.dto.js';
+import { conCodigo } from '../common/errores.catalogo.js';
 
 /** Para comparar nombres sin distinguir mayúsculas ni tildes: "Alimentación" y "alimentacion" son el mismo. */
 const normalizar = (texto: string) =>
@@ -115,10 +116,13 @@ export class CategoriasService {
   private async obtenerPropia(usuarioId: string, id: string, accion: 'modificar' | 'eliminar') {
     const categoria = await this.obtenerDisponible(usuarioId, id);
     if (!categoria) {
-      throw new NotFoundException('Categoría no encontrada');
+      throw conCodigo('CATEGORIA_NO_ENCONTRADA', new NotFoundException('Categoría no encontrada'));
     }
     if (categoria.esPredeterminada) {
-      throw new ForbiddenException(`Las categorías generales no se pueden ${accion}`);
+      throw conCodigo(
+        'CATEGORIA_PREDETERMINADA',
+        new ForbiddenException(`Las categorías generales no se pueden ${accion}`),
+      );
     }
     return categoria;
   }
@@ -148,7 +152,7 @@ export class CategoriasService {
     });
     const clave = normalizar(nombre);
     if (existentes.some((existente) => String(existente._id) !== ignorarId && normalizar(existente.nombre) === clave)) {
-      throw new ConflictException('Ya existe una categoría con ese nombre');
+      throw conCodigo('CATEGORIA_DUPLICADA', new ConflictException('Ya existe una categoría con ese nombre'));
     }
   }
 
