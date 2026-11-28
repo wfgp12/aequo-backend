@@ -3,24 +3,24 @@ import {
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
-  ApiExtraModels,
   ApiNoContentResponse,
   ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import { UsuarioActual } from '../auth/decoradores.js';
 import { ErrorConflictoDto, ErrorPrestamoNoEncontradoDto } from '../common/dto/error-respuesta.dto.js';
+import { ApiZonaHoraria, ZonaHoraria } from '../common/zona-horaria.js';
 import { Idempotente } from '../idempotencia/idempotente.decorator.js';
-import { RespuestaInvalida, RespuestaLista, RespuestasComunes } from '../tarjetas/respuestas-api.js';
+import { RespuestaInvalida, RespuestasComunes } from '../tarjetas/respuestas-api.js';
 import { DeudasService } from './deudas.service.js';
-import { DeudaListadaRespuestaDto, PrestamoRegistradoRespuestaDto } from './dto/deuda-respuesta.dto.js';
+import { ListaDeudasRespuestaDto, PrestamoRegistradoRespuestaDto } from './dto/deuda-respuesta.dto.js';
 import { IdPrestamoParamDto } from './dto/parametros.dto.js';
 import { RegistrarPrestamoDto } from './dto/registrar-prestamo.dto.js';
 
 @ApiTags('deudas')
 @ApiBearerAuth()
-@ApiExtraModels(DeudaListadaRespuestaDto)
 @Controller('deudas')
 export class DeudasController {
   constructor(@Inject(DeudasService) private readonly deudas: DeudasService) {}
@@ -76,23 +76,37 @@ Registra dinero que le prestaron al usuario (RF-34, RF-35, RF-36, CU-19). **Requ
   }
 
   @Get()
+  @ApiZonaHoraria()
   @ApiOperation({
-    summary: 'Listar las deudas con sus préstamos',
+    summary: 'Listar las deudas con sus préstamos, intereses y saldo',
     description: `
-Devuelve todas las deudas del usuario, activas y saldadas, cada una con sus préstamos (RF-34, CU-19). **Requiere sesión:** header \`Authorization: Bearer <accessToken>\`. Sirve para elegir a qué deuda sumar (enviando su \`acreedor\`) y para conocer los ids que se pueden eliminar.
+Devuelve todas las deudas del usuario, activas y saldadas, cada una con sus préstamos y sus cifras, y el total adeudado (RF-34, RF-36, RF-38, CU-19, CU-21). **Requiere sesión:** header \`Authorization: Bearer <accessToken>\`. Sirve para saber cuánto se debe, para elegir a qué deuda sumar (enviando su \`acreedor\`) y para conocer los ids que se pueden eliminar.
+
+**Cifras de cada deuda** (se calculan al consultar, no se guardan, y llegan sin redondear)
+- \`prestado\`: suma de sus préstamos. \`abonado\`: suma de sus abonos. \`saldo\` = \`prestado + intereses − abonado\`.
+- \`intereses\` en \`SIN_INTERES\`: 0. En \`MONTO_FIJO\`: el monto pactado, una sola vez y completo desde que existe la deuda.
+- \`intereses\` en \`TASA\`: tasa mensual simple por **meses cumplidos** hasta hoy sobre el **capital pendiente**, desde la fecha de cada préstamo. El mes se cumple el mismo día del mes siguiente o, si no existe, el último día de ese mes. Los intereses sin pagar no generan más intereses.
+- Cada abono paga primero los intereses acumulados y luego el capital del préstamo más antiguo. Si cae el día en que se cumple un mes, ese interés se suma antes.
+- Si se abonó de más, \`saldo\` es **negativo** (a favor del usuario), no genera interés y reduce un préstamo posterior de la misma deuda.
+- Cuentan todos los movimientos registrados, aunque su fecha sea futura; solo el interés se detiene en hoy. \`saldada\` no cambia el cálculo.
+- \`totalAdeudado\`: suma de los saldos **positivos**; un saldo a favor no resta.
+- **Hoy** es el día en la zona del header opcional \`X-Zona-Horaria\` (nombre IANA; sin él, UTC; un nombre inválido responde \`400\`).
 
 **Reglas a tener en cuenta**
 - Orden de las deudas: por \`acreedor\` sin distinguir mayúsculas y, a igual nombre, la creada más recientemente primero. Los préstamos, del más reciente al más antiguo.
 - \`prestamos\` solo trae los préstamos de esa deuda: ni abonos ni avances en efectivo.
-- No incluye cifras calculadas (monto prestado, abonado, intereses ni saldo).
 - \`valorInteres\`: en \`TASA\` es la tasa mensual simple (\`0.02\` = 2 % al mes); en \`MONTO_FIJO\`, el interés total de la deuda.
-- Sin paginación. Sin deudas responde \`{ "items": [] }\`. Es una lectura sin efectos.
+- Sin paginación. Sin deudas responde \`{ "totalAdeudado": 0, "items": [] }\`. Es una lectura sin efectos.
 `.trim(),
   })
-  @RespuestaLista(DeudaListadaRespuestaDto, 'Objeto con las deudas en `items`, ordenadas por acreedor.')
+  @ApiOkResponse({
+    type: ListaDeudasRespuestaDto,
+    description: 'El total adeudado y las deudas en `items`, ordenadas por acreedor.',
+  })
+  @RespuestaInvalida('`X-Zona-Horaria` no es un nombre de zona IANA válido. `message` es un arreglo.')
   @RespuestasComunes()
-  async listar(@UsuarioActual() usuarioId: string): Promise<{ items: DeudaListadaRespuestaDto[] }> {
-    return { items: await this.deudas.listar(usuarioId) };
+  listar(@UsuarioActual() usuarioId: string, @ZonaHoraria() zona: string): Promise<ListaDeudasRespuestaDto> {
+    return this.deudas.listar(usuarioId, zona);
   }
 
   @Delete(':deudaId/prestamos/:prestamoId')

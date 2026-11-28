@@ -9,11 +9,14 @@ import { Deuda, type DeudaDocument, INTERCALACION_ACREEDOR } from './deuda.schem
 import type {
   DeudaListadaRespuestaDto,
   DeudaRespuestaDto,
+  ListaDeudasRespuestaDto,
   PrestamoRegistradoRespuestaDto,
   PrestamoRespuestaDto,
 } from './dto/deuda-respuesta.dto.js';
 import { DESCRIPCION_PRESTAMO, type RegistrarPrestamoDto } from './dto/registrar-prestamo.dto.js';
 import { conCodigo } from '../common/errores.catalogo.js';
+import { diaEnZona } from '../common/zona-horaria.js';
+import { calcularSaldoDeuda } from './saldo-deuda.js';
 
 const MENSAJES = {
   deudaNoEncontrada: 'Deuda no encontrada',
@@ -44,6 +47,24 @@ function aPrestamoRespuesta(prestamo: TransaccionDocument): PrestamoRespuestaDto
   };
 }
 
+/** La deuda con sus préstamos y sus cifras al día `hoy`, tomando de `movimientos` solo los suyos. */
+function aDeudaListada(
+  deuda: DeudaDocument,
+  movimientos: TransaccionDocument[],
+  hoy: string,
+): DeudaListadaRespuestaDto {
+  const propios = movimientos.filter((movimiento) => String(movimiento.deudaId) === deuda.id);
+  const deClase = (clase: ClasificacionFlujo) => propios.filter((m) => m.clasificacionFlujo === clase);
+  const prestamos = deClase(ClasificacionFlujo.DINERO_RECIBIDO);
+  const abonos = deClase(ClasificacionFlujo.ABONO_DEUDA);
+  const { tipoInteres, valorInteres } = deuda;
+  return {
+    ...aDeudaRespuesta(deuda),
+    ...calcularSaldoDeuda({ tipoInteres, valorInteres, prestamos, abonos }, hoy),
+    prestamos: prestamos.map(aPrestamoRespuesta),
+  };
+}
+
 /** Una deuda tiene un solo interés: si el préstamo indica alguno, debe ser el mismo (lo omitido es sin interés y 0). */
 function exigirMismoInteres(deuda: DeudaDocument, { tipoInteres, valorInteres }: RegistrarPrestamoDto): void {
   if (tipoInteres === undefined && valorInteres === undefined) return;
@@ -53,9 +74,9 @@ function exigirMismoInteres(deuda: DeudaDocument, { tipoInteres, valorInteres }:
 }
 
 /**
- * Deudas y préstamos recibidos (RF-34 a RF-36). Un préstamo **es** una transacción de ingreso `DINERO_RECIBIDO` con
- * `deudaId` (ADR-014): no es ingreso propio y la deuda no guarda montos. La atomicidad entre la deuda y su transacción
- * es por compensación, como en los avances: si falla la segunda escritura se deshace la primera.
+ * Deudas y préstamos recibidos (RF-34 a RF-36, RF-38). Un préstamo **es** una transacción de ingreso `DINERO_RECIBIDO`
+ * con `deudaId` (ADR-014): no es ingreso propio y la deuda no guarda montos. La atomicidad entre la deuda y su
+ * transacción es por compensación, como en los avances: si falla la segunda escritura se deshace la primera.
  * ponytail: las escrituras sobre una misma deuda van en una fila en memoria, que solo protege con un único proceso; un
  * corte entre las dos escrituras o varias instancias piden transacciones de MongoDB. Los abonos (6.2.1) deben pasar por
  * la misma fila.
@@ -110,24 +131,26 @@ export class DeudasService {
     }
   }
 
-  /** Todas las deudas del usuario (por acreedor; a igual nombre, la más nueva primero) con sus préstamos. */
-  async listar(usuarioId: string): Promise<DeudaListadaRespuestaDto[]> {
+  /**
+   * Todas las deudas del usuario (por acreedor; a igual nombre, la más nueva primero) con sus préstamos y sus cifras a
+   * hoy en la zona dada. El total adeudado suma solo saldos positivos: lo que está a favor no tapa otras deudas.
+   */
+  async listar(usuarioId: string, zona: string): Promise<ListaDeudasRespuestaDto> {
     const usuario = new Types.ObjectId(usuarioId);
     const deudas = await this.deudas
       .find({ usuarioId: usuario })
       .sort({ acreedor: 1, createdAt: -1, _id: -1 })
       .collation(INTERCALACION_ACREEDOR);
-    const prestamos = await this.transacciones
+    const movimientos = await this.transacciones
       .find({
         usuarioId: usuario,
         deudaId: { $in: deudas.map((deuda) => deuda._id) },
-        clasificacionFlujo: ClasificacionFlujo.DINERO_RECIBIDO,
+        clasificacionFlujo: { $in: [ClasificacionFlujo.DINERO_RECIBIDO, ClasificacionFlujo.ABONO_DEUDA] },
       })
       .sort({ fecha: -1, createdAt: -1, _id: -1 });
-    return deudas.map((deuda) => ({
-      ...aDeudaRespuesta(deuda),
-      prestamos: prestamos.filter((p) => String(p.deudaId) === deuda.id).map(aPrestamoRespuesta),
-    }));
+    const hoy = diaEnZona(new Date(), zona);
+    const items = deudas.map((deuda) => aDeudaListada(deuda, movimientos, hoy));
+    return { totalAdeudado: items.reduce((total, { saldo }) => total + Math.max(saldo, 0), 0), items };
   }
 
   /** Deshace un préstamo mal registrado. Si era el único, se va también la deuda, salvo que ya tenga abonos (409). */

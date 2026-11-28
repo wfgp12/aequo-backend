@@ -44,6 +44,6 @@ export const ApiZonaHoraria = () =>
       required: false,
       example: 'America/Bogota',
       description:
-        'Zona horaria del cliente (nombre IANA). Solo decide qué día o mes es "hoy" cuando la petición no lo trae: el "mes actual" si no se envía `mes` ni `desde`/`hasta`, o la `fecha` de una compra o avance si no se envía; en los demás casos no cambia nada. Sin el header se usa UTC. Un nombre inválido responde `400`, también si se envía `mes`, un rango o `fecha`.',
+        'Zona horaria del cliente (nombre IANA). Solo decide qué día o mes es "hoy" cuando la petición no lo trae: el "mes actual" si no se envía `mes` ni `desde`/`hasta`, la `fecha` de una compra, avance o pago si no se envía, o hasta qué día corre el interés en `GET /deudas`; en los demás casos no cambia nada. Sin el header se usa UTC. Un nombre inválido responde `400`, también si se envía `mes`, un rango o `fecha`.',
     }),
   );
