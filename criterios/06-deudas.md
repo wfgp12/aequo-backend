@@ -1,6 +1,6 @@
 # Criterios de aceptación — 6. Deudas
 
-Estado: 6.1.1 Aprobado (2026-11-26) · 6.1.2 Aprobado (2026-11-27)
+Estado: 6.1.1 Aprobado (2026-11-26) · 6.1.2 Aprobado (2026-11-27) · 6.1.3 Aprobado (2026-11-28)
 
 ## Paquete 6.1.1 — Modelar entidad Deuda (RF-34, RF-36)
 
@@ -422,6 +422,8 @@ Usuario A con sesión. **Préstamo base:** `{ "acreedor": "Juan Pérez", "monto"
 - **Entonces** responde `200` con exactamente la propiedad `items`, y en ella Ana, pedro y Zoe en ese orden, cada una con exactamente las propiedades del contrato (sin montos calculados); los préstamos de Ana salen con el del 20 primero; Zoe tiene `saldada` `true`
 
 > Decisión D7.
+>
+> Cambiado por la decisión D1 del 6.1.3 (2026-11-28): la respuesta gana `totalAdeudado` y cada deuda `prestado`, `intereses`, `abonado` y `saldo` (CA-RF38-04).
 
 ### CA-RF34-24 — Solo se ven las deudas y préstamos propios
 
@@ -438,6 +440,8 @@ Usuario A con sesión. **Préstamo base:** `{ "acreedor": "Juan Pérez", "monto"
 - **Entonces** responde `200` con `{ "items": [] }`; sin sesión, `401`
 
 > Decisión D7.
+>
+> Cambiado por la decisión D1 del 6.1.3 (2026-11-28): sin deudas responde `{ "totalAdeudado": 0, "items": [] }`.
 
 ### CA-RF34-26 — El préstamo no se toca desde `/transacciones`
 
@@ -615,3 +619,277 @@ Prueba: `prestamos-acreedor-interes.integration.spec.ts`, «CA-RF35-05 otro erro
 - **RF-35:** CA-RF35-01 a CA-RF35-06.
 - **RF-36:** CA-RF36-10 a CA-RF36-14.
 - **Total:** 33 criterios.
+
+---
+
+## Paquete 6.1.3 — Cálculo de intereses y saldo (RF-36, RF-38)
+
+Estado: **Aprobado** por el desarrollador el 2026-11-28, con la opción recomendada en D1 a D13.
+
+### Alcance
+
+Criterio de la EDT: «El saldo es igual a prestado más intereses menos abonado en todos los casos de prueba».
+
+Entra: calcular de cada deuda lo prestado, los intereses (sin interés, tasa o monto fijo), lo abonado y el saldo; el total adeudado; y entregarlos en `GET /deudas` (D1).
+
+No entra: registrar o borrar abonos, cambiar `saldada` ni limitar cuánto se abona (6.2.1); número de cuotas o cuota estimada (el frontend confirmó que no hay); consultar el saldo a una fecha elegida; pantallas. Como todavía no hay endpoint de abonos, las pruebas siembran las transacciones directamente.
+
+### Fuentes
+
+- RF-36, RF-38 y CU-21 («El sistema muestra por deuda el monto prestado, los intereses, lo abonado y el saldo» y «el total adeudado»); CU-20 (el abono reduce el saldo; si queda en cero se marca saldada).
+- RNF-11: cálculos en el backend con precisión completa; se redondea al peso solo al presentar.
+- ADR-014: la deuda no guarda montos. Prestado = transacciones `DINERO_RECIBIDO` con su `deudaId`; abonado = transacciones `ABONO_DEUDA` con su `deudaId`.
+- D10 del 6.1.2: la tasa es **mensual simple** (`0,02` = 2 % al mes) y el monto fijo es el interés **total** de la deuda, no por mes.
+
+### Ya decidido (no son decisiones)
+
+- Nada se redondea en el backend.
+- Interés simple: los intereses sin pagar no generan más intereses.
+- Un solo interés por deuda; sumar montos no agrega otro monto fijo.
+- Solo cuentan las transacciones del usuario con el `deudaId` de la deuda: un avance en efectivo (sin `deudaId`) no entra.
+
+### Decisiones aprobadas por el desarrollador (2026-11-28)
+
+Se aprobó la opción (a), la recomendada, en D1 a D13. La aprobación de D1 incluye ajustar las pruebas ya aprobadas que se citan allí, y ninguna otra.
+
+Ejemplo común, salvo que se diga otra cosa: préstamo de $1.000.000 el 10 de enero de 2026 con tasa de 2 % al mes ($20.000 por mes).
+
+> Decisión aprobada: **D1 — ¿Se muestran las cifras en `GET /deudas` o solo se hace el cálculo?** Ningún otro paquete de backend cubre RF-38 (6.2.1 es registrar abonos) y la pantalla 6.2.2 espera el saldo.
+> - (a) **Recomendada:** `GET /deudas` agrega a cada deuda `prestado`, `intereses`, `abonado` y `saldo`, y a la respuesta `totalAdeudado` (contrato abajo). La pantalla muestra «Debes $1.020.000» sin calcular nada.
+> - (b) Solo el cálculo, sin API: `GET /deudas` sigue igual y habría que abrir otro paquete para RF-38; el frontend no puede mostrar los $1.020.000.
+> - Consecuencia de (a): hay que **ajustar pruebas ya aprobadas** que exigen la forma anterior: CA-RF34-23 y CA-RF34-25 (`deudas-listar-eliminar.integration.spec.ts`) y la lista de propiedades de `test/deudas/arnes-deudas.ts`. Además, la descripción de Swagger deja de decir «sin cifras calculadas» y el contrato `contratos/deudas.md` necesita la conformidad del frontend.
+
+> Decisión aprobada: **D2 — ¿Desde qué fecha corre el interés?** Ejemplo: $1.000.000 el 10 de enero, otros $500.000 el 25 de febrero; se consulta el 10 de abril.
+> - (a) **Recomendada:** cada monto desde su propia fecha: $60.000 (3 meses) + $10.000 (1 mes) = **$70.000** de interés.
+> - (b) Todo desde el primer préstamo: $1.500.000 × 2 % × 3 = **$90.000** (cobra interés de dinero que aún no se había recibido).
+> - (c) Desde el día en que se anotó en la app: si ambos se anotan el 10 de abril, **$0**.
+
+> Decisión aprobada: **D3 — ¿Cómo se cuentan los meses?** Ejemplo: préstamo el 25 de enero, se consulta el 10 de marzo (44 días).
+> - (a) **Recomendada:** meses **cumplidos**: el interés de un mes se suma el día en que se completa (aquí el 25 de febrero): **$20.000**.
+> - (b) Proporcional por días (mes de 30): 44/30 × $20.000 = **$29.333,33**.
+> - (c) Cada cambio de mes del calendario (febrero y marzo): **$40.000** (un préstamo del 31 de enero ya cobraría un mes el 1 de febrero).
+> - (d) Mes empezado cuenta completo: **$40.000** (y $20.000 desde el mismo día del préstamo).
+
+> Decisión aprobada: **D4 — ¿Cuándo se cumple el mes si el día no existe?** (solo con D3 (a)). Ejemplo: préstamo el 31 de enero de 2026, se consulta el 28 de febrero.
+> - (a) **Recomendada:** el último día de ese mes, sin correr el día de los meses siguientes (28 de febrero, 31 de marzo, 30 de abril): **$20.000**.
+> - (b) El día siguiente (1 de marzo): **$0**.
+> - (c) Cada 30 días (2 de marzo, 1 de abril…): **$0**.
+
+> Decisión aprobada: **D5 — ¿Sobre qué saldo se calcula la tasa?** (parte abierta de D7 del 6.1.1). Ejemplo: se abonan $520.000 el 10 de febrero y se consulta el 10 de agosto.
+> - (a) **Recomendada:** sobre el **capital pendiente** (lo prestado que falta por pagar): después del abono quedan $500.000 y el mes cuesta $10.000. Intereses **$80.000**, saldo **$560.000**.
+> - (b) Sobre lo prestado originalmente: siempre $20.000 al mes. Intereses **$140.000**, saldo **$620.000**. Es más simple (D6 a D8 desaparecen), pero una deuda ya pagada por completo seguiría generando intereses para siempre.
+
+> Decisión aprobada: **D6 — Si se abona dentro del mes, ¿sobre qué capital se cobra ese mes?** Ejemplo: se abonan $500.000 el 25 de enero y se consulta el 10 de febrero.
+> - (a) **Recomendada:** sobre lo que se debe el día en que se cumple el mes: $500.000 × 2 % = **$10.000**, saldo **$510.000**. Y si el abono cae **el mismo día** en que se cumple el mes, primero se suma el interés y luego se aplica el abono (así puede pagarlo).
+> - (b) Sobre lo que se debía al empezar el mes: **$20.000**, saldo **$520.000**.
+> - Sobre el mismo día: abonando $520.000 el 10 de febrero y consultando el 10 de marzo, con (a) el saldo es **$510.000**; si el abono se aplicara antes de sumar el interés, **$499.200**.
+
+> Decisión aprobada: **D7 — ¿El abono paga primero los intereses o la deuda?** Ejemplo: se abonan $520.000 el 10 de febrero (ya hay $20.000 de interés) y se consulta el 10 de agosto.
+> - (a) **Recomendada:** primero los intereses acumulados y lo que sobre al capital: capital $500.000, saldo **$560.000**. Es lo usual (creo que es la regla del artículo 1653 del Código Civil colombiano; no está en `../docs`).
+> - (b) Primero al capital: capital $480.000 y quedan $20.000 de interés sin pagar, saldo **$557.600** (favorece al deudor).
+
+> Decisión aprobada: **D8 — Con varios montos, ¿cuál se paga primero?** Importa porque cada uno cumple mes en un día distinto. Ejemplo: $1.000.000 el 10 de enero y $500.000 el 25 de enero; se abonan $500.000 el 28 de enero y se consulta el 10 de marzo.
+> - (a) **Recomendada:** el más antiguo: saldo **$1.030.000**.
+> - (b) El más reciente: **$1.040.000**.
+> - (c) Repartido en proporción: **$1.033.333,33**.
+
+> Decisión aprobada: **D9 — ¿Qué pasa si lo abonado supera lo debido?** Puede ocurrir al borrar un préstamo, aunque 6.2.1 rechace abonar de más. Ejemplo: se deben $1.020.000 el 10 de febrero y se abonan $1.100.000; además se le deben $550.000 a otra persona.
+> - (a) **Recomendada:** el saldo queda en **−$80.000** (a favor), así siempre se cumple prestado + intereses − abonado; el total adeudado solo suma saldos positivos: **$550.000**. Si después la misma deuda recibe otro monto, el sobrante lo reduce desde su fecha.
+> - (b) El saldo se muestra **$0** y total $550.000: más limpio, pero los $80.000 desaparecen de la vista y no se cumple el criterio de la EDT en ese caso.
+> - (c) Saldo negativo y total que también resta: total **$470.000** (lo que me deben unos tapa lo que debo a otros).
+
+> Decisión aprobada: **D10 — Fechas futuras y qué es «hoy».** Ejemplo: préstamo del 10 de enero; el 27 de noviembre se anota un abono de $100.000 con fecha 1 de diciembre.
+> - (a) **Recomendada:** cuenta **todo lo registrado**, tenga la fecha que tenga (como los reportes de su mes); el tiempo solo afecta el interés, que corre por meses cumplidos hasta hoy. Saldo: $1.000.000 + $200.000 − $100.000 = **$1.100.000**. «Hoy» es el día en la zona de `X-Zona-Horaria` (UTC sin el header; inválida → `400`). Ejemplo de zona: el 10 de febrero a las 03:00 UTC, en Bogotá es todavía 9 de febrero: interés **$0** en Bogotá y **$20.000** sin el header.
+> - (b) Ignorar lo que tiene fecha futura hasta que llegue: saldo **$1.200.000** (lo anotado no se ve).
+
+> Decisión aprobada: **D11 — ¿Una deuda `saldada` sigue generando interés?**
+> - (a) **Recomendada:** el cálculo no mira `saldada`: sale solo de las transacciones. Una deuda pagada (abono de $1.020.000 el 10 de febrero) no tiene capital y el 10 de julio sigue con saldo **$0**. Marcarla solo con saldo cero es de 6.2.1. Si en la base hubiera una marcada saldada sin pagar, seguiría mostrando (y sumando) lo que debe.
+> - (b) Si está saldada, el saldo se fuerza a **$0** y se congela el interés: una marcada por error con $1.000.000 pendientes mostraría $0.
+
+> Decisión aprobada: **D12 — ¿Cuándo se cobra el monto fijo?** Ejemplo: $1.000.000 prestados hoy con interés fijo de $150.000.
+> - (a) **Recomendada:** completo desde que existe la deuda: hoy debes **$1.150.000** (así se pactó; no hay plazo).
+> - (b) Al cumplir el primer mes: hoy **$1.000.000** y dentro de un mes $1.150.000.
+> - Repartirlo por meses no es posible: no hay número de cuotas.
+
+> Decisión aprobada: **D13 — Dónde vive el cálculo (nombres).**
+> - (a) **Recomendada:** una función pura, como `cuota-credito.ts`: `calcularSaldoDeuda(deuda, hoy)` en `src/deudas/saldo-deuda.ts`, donde `deuda` es `{ tipoInteres, valorInteres, prestamos: { monto, fecha: Date }[], abonos: { monto, fecha: Date }[] }` y `hoy` es `YYYY-MM-DD`; devuelve `{ prestado, intereses, abonado, saldo }`. El día de cada `fecha` es el de UTC y el orden de los arreglos no importa. `DeudasService` la usa al listar; el método `calcularSaldo(deudaId)` de `CLAUDE.md` se agrega en 6.2.1, cuando alguien lo necesite.
+> - (b) Crear ya `DeudasService.calcularSaldo(usuarioId, deudaId, hoy)`: un método sin quién lo llame. Sería necesario si se elige D1 (b).
+
+### Contrato (aprobado, D1)
+
+`GET /deudas`, con header opcional `X-Zona-Horaria`. Ejemplo del 10 de abril de 2026 (caso M1). `POST /deudas/prestamos` y el `DELETE` no cambian.
+
+```json
+{
+  "totalAdeudado": 1570000,
+  "items": [
+    {
+      "id": "…", "acreedor": "Juan Pérez", "tipoInteres": "TASA", "valorInteres": 0.02, "saldada": false, "creadaEn": "…",
+      "prestado": 1500000,
+      "intereses": 70000,
+      "abonado": 0,
+      "saldo": 1570000,
+      "prestamos": [{ "id": "…", "monto": 500000, "fecha": "2026-02-25", "descripcion": "Préstamo recibido", "creadaEn": "…" }]
+    }
+  ]
+}
+```
+
+(El ejemplo muestra solo uno de los dos préstamos.) Los abonos no se listan (6.2.1). No hay errores nuevos: solo el `400` de zona horaria inválida, que ya sale con `code` `VALIDACION` y `action`.
+
+### Casos de referencia
+
+Cifras en pesos, calculadas a mano; se comparan con `toBeCloseTo(valor, 6)`. `TASA` es 0,02 salvo que se indique. Las fechas sin año son de 2026. «—» = no depende de ninguna decisión (fuera de D13, los nombres).
+
+| Caso | Interés | Préstamos | Abonos | Hoy | Prestado | Intereses | Abonado | Saldo | Depende de |
+|---|---|---|---|---|---|---|---|---|---|
+| S1 | sin interés | 500.000 el 10-ene | — | 27-nov | 500.000 | 0 | 0 | 500.000 | — |
+| S2 | sin interés | 500.000 el 10-ene; 200.000 el 25-feb | 150.000 el 10-mar | 27-nov | 700.000 | 0 | 150.000 | 550.000 | — |
+| F1 | fijo 150.000 | 1.000.000 el 27-nov | — | 27-nov | 1.000.000 | 150.000 | 0 | 1.150.000 | D12 |
+| F2 | fijo 150.000 | 1.000.000 el 10-ene; 500.000 el 25-feb | 400.000 el 10-mar | 27-nov | 1.500.000 | 150.000 | 400.000 | 1.250.000 | — |
+| F3 | fijo 150.000,50 | 1.254.700,55 el 10-ene | — | 27-nov | 1.254.700,55 | 150.000,50 | 0 | 1.404.701,05 | — |
+| T1 | tasa | 1.000.000 el 10-ene | — | 10-ene | 1.000.000 | 0 | 0 | 1.000.000 | D3 |
+| T2 | tasa | igual | — | 9-feb | 1.000.000 | 0 | 0 | 1.000.000 | D3 |
+| T3 | tasa | igual | — | 10-feb | 1.000.000 | 20.000 | 0 | 1.020.000 | D3 |
+| T4 | tasa | igual | — | 10-abr | 1.000.000 | 60.000 | 0 | 1.060.000 | D3 |
+| T5 | tasa | igual | — | 10-ene-2027 | 1.000.000 | 240.000 | 0 | 1.240.000 | D3 (compuesto daría 1.268.241,79) |
+| T6 | tasa | 1.254.700 el 15-ene | — | 15-ene-2027 | 1.254.700 | 301.128 | 0 | 1.555.828 | D3 |
+| T7 | tasa 0,015 | 333.333 el 15-ene | — | 15-abr | 333.333 | 14.999,985 | 0 | 348.332,985 | D3 (sin redondear) |
+| C1 | tasa | 1.000.000 el 31-ene | — | 27-feb / 28-feb | 1.000.000 | 0 / 20.000 | 0 | 1.000.000 / 1.020.000 | D3, D4 |
+| C2 | tasa | igual | — | 30-mar / 31-mar / 30-abr | 1.000.000 | 20.000 / 40.000 / 60.000 | 0 | 1.020.000 / 1.040.000 / 1.060.000 | D3, D4 |
+| C3 | tasa | 1.000.000 el 31-ene-2028 | — | 28-feb-2028 / 29-feb-2028 | 1.000.000 | 0 / 20.000 | 0 | 1.000.000 / 1.020.000 | D4 (bisiesto) |
+| C4 | tasa | 1.000.000 el 28-feb | — | 27-mar / 28-mar | 1.000.000 | 0 / 20.000 | 0 | 1.000.000 / 1.020.000 | D4 |
+| C5 | tasa | 1.000.000 el 30-nov | — | 28-feb-2027 | 1.000.000 | 60.000 | 0 | 1.060.000 | D4 (cambio de año) |
+| C6 | tasa | 1.000.000 el 29-feb-2028 | — | 28-feb-2029 | 1.000.000 | 240.000 | 0 | 1.240.000 | D4 |
+| M1 | tasa | 1.000.000 el 10-ene; 500.000 el 25-feb | — | 10-abr | 1.500.000 | 70.000 | 0 | 1.570.000 | D2, D3 |
+| A1 | tasa | 1.000.000 el 10-ene | 520.000 el 10-feb | 10-mar | 1.000.000 | 30.000 | 520.000 | 510.000 | D5, D6, D7 |
+| A2 | tasa | igual | igual | 10-ago | 1.000.000 | 80.000 | 520.000 | 560.000 | D5, D6, D7 |
+| A3 | tasa | igual | 10.000 el 10-feb | 10-mar | 1.000.000 | 40.000 | 10.000 | 1.030.000 | D5, D6, D7 (el interés sin pagar no genera interés) |
+| A4 | tasa | igual | 500.000 el 25-ene | 10-feb | 1.000.000 | 10.000 | 500.000 | 510.000 | D5, D6 |
+| A5 | tasa | igual | 1.000.000 el 25-ene | 10-jul | 1.000.000 | 0 | 1.000.000 | 0 | D5, D6 |
+| A6 | tasa | igual | 1.020.000 el 10-feb | 10-jul | 1.000.000 | 20.000 | 1.020.000 | 0 | D5, D6, D11 |
+| A7 | tasa | 1.000.000 el 10-ene; 500.000 el 25-ene | 500.000 el 28-ene | 10-mar | 1.500.000 | 30.000 | 500.000 | 1.030.000 | D5, D8 |
+| A8 | tasa | 1.000.000 el 10-ene; 500.000 el 25-feb | 1.230.000 el 10-abr | 10-may | 1.500.000 | 76.800 | 1.230.000 | 346.800 | D5, D6, D7, D8 |
+| E1 | sin interés | 500.000 el 10-ene | 600.000 el 10-feb | 27-nov | 500.000 | 0 | 600.000 | −100.000 | D9 |
+| E2 | tasa | 1.000.000 el 10-ene | 1.100.000 el 10-feb | 10-jun | 1.000.000 | 20.000 | 1.100.000 | −80.000 | D5, D6, D9 |
+| E3 | tasa | 1.000.000 el 10-ene; 200.000 el 5-mar | 1.100.000 el 10-feb | 5-abr | 1.200.000 | 22.400 | 1.100.000 | 122.400 | D5, D6, D9 |
+| V1 | tasa | 1.000.000 el 15-dic | — | 27-nov | 1.000.000 | 0 | 0 | 1.000.000 | D10 |
+| V2 | tasa | 1.000.000 el 10-ene | 100.000 el 1-dic | 27-nov | 1.000.000 | 200.000 | 100.000 | 1.100.000 | D10 |
+
+### CA-RF36-15 — Sin intereses
+
+- **Dado** una deuda `SIN_INTERES`
+- **Cuando** se calcula su saldo (S1, S2)
+- **Entonces** `intereses` es 0 sin importar el tiempo transcurrido y el saldo es el de la tabla
+
+### CA-RF36-16 — Monto fijo
+
+- **Dado** una deuda `MONTO_FIJO`
+- **Cuando** se calcula su saldo (F1 a F3)
+- **Entonces** `intereses` es el monto fijo una sola vez, sin importar cuántos préstamos haya, el tiempo ni los abonos
+
+> Decisión aprobada: D12.
+
+### CA-RF36-17 — Tasa mensual simple por meses cumplidos
+
+- **Dado** una deuda `TASA`
+- **Cuando** se calcula su saldo (T1 a T7)
+- **Entonces** cada mes cumplido suma capital × tasa, sin interés sobre intereses y sin redondear
+
+> Decisión aprobada: D3.
+
+### CA-RF36-18 — Fin de mes, bisiestos y cambio de año
+
+- **Dado** préstamos de los días 28 a 31
+- **Cuando** se calcula su saldo (C1 a C6)
+- **Entonces** el mes se cumple el mismo día del mes siguiente o, si no existe, el último día de ese mes, sin correr el día de los meses posteriores
+
+> Decisión aprobada: D4.
+
+### CA-RF36-19 — Cada préstamo corre desde su fecha
+
+- **Dado** una deuda `TASA` con dos préstamos de fechas distintas
+- **Cuando** se calcula su saldo (M1)
+- **Entonces** cada monto genera interés desde su propia fecha
+
+> Decisión aprobada: D2.
+
+### CA-RF36-20 — Cómo actúan los abonos sobre el interés
+
+- **Dado** una deuda `TASA` con abonos
+- **Cuando** se calcula su saldo (A1 a A8)
+- **Entonces** cada abono paga primero los intereses acumulados y luego el capital del préstamo más antiguo; cada mes se cobra sobre el capital pendiente el día en que se cumple (el interés de ese día se suma antes de aplicar el abono)
+
+> Decisión aprobada: D5 a D8.
+
+### CA-RF38-01 — El saldo es prestado más intereses menos abonado (criterio de la EDT)
+
+- **Dado** cada caso de la tabla, y A8 con los arreglos de préstamos y abonos en orden inverso
+- **Cuando** se calcula su saldo
+- **Entonces** `prestado` es la suma de los préstamos, `abonado` la de los abonos, `saldo` = `prestado` + `intereses` − `abonado`, y el orden en que llegan no cambia nada
+
+> Decisión aprobada: D13.
+
+### CA-RF38-02 — Abonado por encima de lo debido
+
+- **Dado** una deuda con más abonado que prestado más intereses
+- **Cuando** se calcula su saldo (E1 a E3)
+- **Entonces** el saldo es negativo, no genera interés y el sobrante reduce un préstamo posterior desde su fecha
+
+> Decisión aprobada: D9.
+
+### CA-RF38-03 — Movimientos con fecha futura
+
+- **Dado** un préstamo o un abono con fecha posterior a hoy
+- **Cuando** se calcula el saldo (V1, V2)
+- **Entonces** cuenta en `prestado` o `abonado`, y el interés solo incluye los meses cumplidos hasta hoy
+
+> Decisión aprobada: D10.
+
+### CA-RF38-04 — `GET /deudas` trae las cifras de cada deuda
+
+- **Dado** A con tres deudas, consultadas el 10 de abril de 2026: «Ana» (los préstamos de M1), «Pedro» (los préstamos y el abono de S2) y «Zoe» (los de E2, marcada `saldada`)
+- **Cuando** consulta `GET /deudas`
+- **Entonces** responde `200` con `totalAdeudado` e `items`; cada deuda tiene las propiedades de antes más `prestado`, `intereses`, `abonado` y `saldo`: Ana 1.500.000 / 70.000 / 0 / 1.570.000, Pedro 700.000 / 0 / 150.000 / 550.000 y Zoe 1.000.000 / 20.000 / 1.100.000 / −80.000. El cálculo no escribe nada en la base (ni cambia `saldada`)
+
+> Decisión aprobada: D1, D9 y D11.
+
+### CA-RF38-05 — Total adeudado
+
+- **Dado** las tres deudas de CA-RF38-04, y aparte un usuario sin deudas
+- **Cuando** consulta `GET /deudas`
+- **Entonces** `totalAdeudado` es 2.120.000 (suma de los saldos positivos, sin restar el de Zoe); sin deudas la respuesta es `{ "totalAdeudado": 0, "items": [] }`
+
+> Decisión aprobada: D1 y D9.
+
+### CA-RF38-06 — Solo cuentan las transacciones propias de cada deuda
+
+- **Dado** una deuda de A con un préstamo y un abono; además un avance en efectivo de A sin `deudaId`, otra deuda de A, y una transacción de B que (sembrada así en la base) apunta a la primera deuda de A; B tiene su propia deuda
+- **Cuando** A consulta `GET /deudas`
+- **Entonces** las cifras de la primera deuda salen solo de su préstamo y su abono, `totalAdeudado` suma solo las dos deudas de A y nada de B aparece
+
+### CA-RF38-07 — «Hoy» es el día del cliente
+
+- **Dado** el préstamo de T1 y el instante 2026-02-10T03:00:00Z
+- **Cuando** se consulta `GET /deudas` sin header, con `X-Zona-Horaria: America/Bogota` y con `Zona/Invalida`
+- **Entonces** sin header `intereses` es 20.000; en Bogotá es 0; la zona inválida responde `400` (`code` `VALIDACION`)
+
+> Decisión aprobada: D10.
+
+### CA-RF38-08 — Documentación
+
+- **Dado** la documentación Swagger
+- **Cuando** se genera
+- **Entonces** `GET /deudas` documenta el header `X-Zona-Horaria`, la respuesta `400`, y `totalAdeudado`, `prestado`, `intereses`, `abonado` y `saldo` con descripción y ejemplo
+
+> Decisión aprobada: D1.
+
+### Nota para 6.2.1
+
+El saldo no se redondea, así que un abono de la cifra mostrada (al peso) puede dejar centavos: 6.2.1 debe decidir desde qué saldo se considera saldada, si se permite abonar de más y cuándo se reabre.
+
+## Índice de criterios del paquete 6.1.3
+
+- **RF-36:** CA-RF36-15 a CA-RF36-20.
+- **RF-38:** CA-RF38-01 a CA-RF38-08.
+- **Total:** 14 criterios.

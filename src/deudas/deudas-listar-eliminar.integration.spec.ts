@@ -30,7 +30,7 @@ describe('GET /deudas y DELETE /deudas/:deudaId/prestamos/:prestamoId (integraci
       const { status, body } = await e.listar();
 
       expect(status).toBe(200);
-      expect(Object.keys(body)).toEqual(['items']);
+      expect(Object.keys(body).sort()).toEqual(['items', 'totalAdeudado']);
       const { items } = body;
       expect(items.map((deuda: Doc) => deuda.acreedor)).toEqual(['Ana', 'pedro', 'Zoe']);
       for (const deuda of items) {
@@ -75,7 +75,7 @@ describe('GET /deudas y DELETE /deudas/:deudaId/prestamos/:prestamoId (integraci
       const { status, body } = await e.listar();
 
       expect(status).toBe(200);
-      expect(body).toEqual({ items: [] });
+      expect(body).toEqual({ totalAdeudado: 0, items: [] });
     });
 
     it('CA-RF34-25 sin sesión o con una inválida responde 401', async () => {
