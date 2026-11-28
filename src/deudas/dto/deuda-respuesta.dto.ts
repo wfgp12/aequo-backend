@@ -85,9 +85,43 @@ export class PrestamoRegistradoRespuestaDto {
 }
 
 export class DeudaListadaRespuestaDto extends DeudaRespuestaDto {
+  @ApiProperty({ type: Number, example: 1500000, description: 'Suma de los préstamos de la deuda, en pesos.' })
+  prestado: number;
+
+  @ApiProperty({
+    type: Number,
+    example: 70000,
+    description:
+      'Intereses generados hasta hoy, pagados o no, en pesos y sin redondear. 0 sin interés; en `MONTO_FIJO`, el monto pactado; en `TASA`, la tasa mensual por cada mes cumplido sobre el capital pendiente.',
+  })
+  intereses: number;
+
+  @ApiProperty({ type: Number, example: 0, description: 'Suma de los abonos registrados a la deuda, en pesos.' })
+  abonado: number;
+
+  @ApiProperty({
+    type: Number,
+    example: 1570000,
+    description:
+      '`prestado + intereses − abonado`, en pesos y sin redondear (se redondea al peso solo al mostrar). Negativo significa que se abonó de más: es saldo a favor del usuario.',
+  })
+  saldo: number;
+
   @ApiProperty({
     type: [PrestamoRespuestaDto],
     description: 'Los préstamos de la deuda, del más reciente al más antiguo.',
   })
   prestamos: PrestamoRespuestaDto[];
+}
+
+export class ListaDeudasRespuestaDto {
+  @ApiProperty({
+    type: Number,
+    example: 1570000,
+    description: 'Total adeudado hoy, en pesos: la suma de los saldos positivos. Un saldo a favor no resta.',
+  })
+  totalAdeudado: number;
+
+  @ApiProperty({ type: [DeudaListadaRespuestaDto], description: 'Las deudas, ordenadas por acreedor.' })
+  items: DeudaListadaRespuestaDto[];
 }

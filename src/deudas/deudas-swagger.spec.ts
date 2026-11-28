@@ -83,6 +83,35 @@ describe('Swagger de las deudas y los préstamos', () => {
     expect(esquema?.properties?.items?.type).toBe('array');
   });
 
+  /** El esquema, siguiendo su `$ref` si lo tiene. */
+  const resolver = (esquema: any): any =>
+    esquema?.$ref ? (documento.components?.schemas as any)?.[esquema.$ref.split('/').pop()] : esquema;
+  const respuestaDelListado = () => {
+    const op = operacion('get', '/deudas') as { responses: Record<string, any> } | undefined;
+    return resolver(op?.responses['200']?.content?.['application/json']?.schema);
+  };
+  const documentado = (campo: { description?: string; example?: unknown } | undefined, nombre: string) => {
+    expect(campo?.description?.trim(), `${nombre}: sin descripción`).toBeTruthy();
+    expect(campo?.example, `${nombre}: sin ejemplo`).toBeDefined();
+  };
+
+  it('CA-RF38-08 el GET documenta el header X-Zona-Horaria y el 400', () => {
+    const op = operacion('get', '/deudas');
+
+    expect(op?.parameters?.some((p) => p.in === 'header' && p.name === 'X-Zona-Horaria')).toBe(true);
+    expect(Object.keys(op?.responses ?? {})).toContain('400');
+  });
+
+  it('CA-RF38-08 el GET documenta totalAdeudado', () => {
+    documentado(respuestaDelListado()?.properties?.totalAdeudado, 'totalAdeudado');
+  });
+
+  it.each(['prestado', 'intereses', 'abonado', 'saldo'])('CA-RF38-08 cada deuda del listado documenta %s', (nombre) => {
+    const deuda = resolver(respuestaDelListado()?.properties?.items?.items);
+
+    documentado(deuda?.properties?.[nombre], nombre);
+  });
+
   it('CA-RF34-16 el resumen del periodo documenta dineroDisponible', () => {
     const esquema = documento.components?.schemas?.PeriodoRespuestaDto as {
       properties?: Record<string, { description?: string; example?: unknown }>;

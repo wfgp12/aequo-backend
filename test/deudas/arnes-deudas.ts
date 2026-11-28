@@ -74,7 +74,14 @@ export const error404 = (message: string) => ({ statusCode: 404, message, error:
 export const error409 = (message: string) => ({ statusCode: 409, message, error: 'Conflict' });
 
 export const CLAVES_DE_UNA_DEUDA = ['acreedor', 'creadaEn', 'id', 'saldada', 'tipoInteres', 'valorInteres'];
-export const CLAVES_DE_UNA_DEUDA_LISTADA = [...CLAVES_DE_UNA_DEUDA, 'prestamos'].sort();
+export const CLAVES_DE_UNA_DEUDA_LISTADA = [
+  ...CLAVES_DE_UNA_DEUDA,
+  'abonado',
+  'intereses',
+  'prestado',
+  'prestamos',
+  'saldo',
+].sort();
 export const CLAVES_DE_UN_PRESTAMO = ['creadaEn', 'descripcion', 'fecha', 'id', 'monto'];
 
 /** Fecha de calendario `YYYY-MM-DD` como se guarda: medianoche UTC. */
